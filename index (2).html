@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<!--
+  A11y Lab: a hands-on accessibility learning and testing tool.
+  Single self-contained file: inline CSS + vanilla JS, no CDNs, no storage APIs (state lives in memory only).
+
+  Reading guide for students: comments starting with "WHY:" explain the accessibility decision.
+  The "Before" sample UI in Module 3 is DELIBERATELY inaccessible. Everything else in the app aims to meet WCAG 2.1 AA.
+-->
+<!-- WHY: SC 3.1.1 Language of Page. Screen readers use lang to pick the right pronunciation rules. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- WHY: no maximum-scale / user-scalable=no. Blocking pinch zoom would fail SC 1.4.4 Resize Text. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<!-- WHY: SC 2.4.2 Page Titled. A descriptive title is the first thing a screen reader announces. -->
+<title>A11y Lab – WCAG 2.1 AA learning and testing tool</title>
+<script>
+  /* WHY: set the theme before first paint (respects prefers-color-scheme) so users do not get a bright flash. */
+  document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+</script>
+<style>
+/* =========================================================
+   THEME TOKENS. Contrast verified: text >= 4.5:1, UI borders/focus >= 3:1 in every theme.
+   ========================================================= */
+:root, :root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --surface:#f3f5f8; --code-bg:#e9edf2;
+  --text:#1a1d21; --muted:#454c56; --link:#0b4fa8;
+  --primary:#0b4fa8; --on-primary:#ffffff;
+  --border:#6b7280; --focus:#0b4fa8;
+  --danger:#b00020; --success:#1b6e2f;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0f1318; --surface:#1a2029; --code-bg:#242c38;
+  --text:#eef1f5; --muted:#b4bcc8; --link:#8ab8ff;
+  --primary:#8ab8ff; --on-primary:#0a1830;
+  --border:#8892a0; --focus:#ffd166;
+  --danger:#ff9aa8; --success:#7be495;
+}
+/* WHY: a true high-contrast theme for low-vision users who do not use OS forced-colors. */
+:root[data-theme="hc"]{
+  color-scheme:dark;
+  --bg:#000000; --surface:#000000; --code-bg:#000000;
+  --text:#ffffff; --muted:#ffffff; --link:#9fd0ff;
+  --primary:#ffff00; --on-primary:#000000;
+  --border:#ffffff; --focus:#00ffff;
+  --danger:#ff8a8a; --success:#8aff8a;
+}
+
+/* =========================================================
+   BASE. rem units everywhere so text and layout scale with user settings (SC 1.4.4, 1.4.10).
+   ========================================================= */
+*,*::before,*::after{box-sizing:border-box}
+html{font-size:100%;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:1rem/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow-wrap:break-word}
+a{color:var(--link);text-underline-offset:.15em} /* WHY: links stay underlined so they are not identified by color alone (SC 1.4.1). */
+a:hover{text-decoration-thickness:.15em}
+h1,h2,h3,h4,h5{line-height:1.25;margin:1.25em 0 .5em}
+h1{font-size:2rem;margin-top:0} h2{font-size:1.6rem} h3{font-size:1.3rem} h4{font-size:1.1rem} h5{font-size:1rem}
+p{margin:.5em 0} ul,ol{padding-left:1.5rem}
+code,kbd,pre{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
+code,kbd{background:var(--code-bg);padding:.1em .35em;border-radius:.25rem;border:1px solid var(--border)}
+pre{background:var(--code-bg);padding:.75rem;border-radius:.375rem;border:1px solid var(--border);margin:.5rem 0;
+    white-space:pre-wrap;overflow-wrap:anywhere} /* WHY: wrap instead of scroll, so no horizontal scrolling at 320px (SC 1.4.10). */
+pre code{background:none;border:0;padding:0}
+[hidden]{display:none!important}
+.sr-only{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.hint{color:var(--muted);font-size:.95rem}
+.err{color:var(--danger);font-weight:700}
+.row{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center}
+
+/* WHY: skip link (SC 2.4.1): off-screen until focused, then clearly visible. Not display:none (that would remove it from the tab order). */
+.skip-link{position:absolute;left:.5rem;top:-5rem;z-index:1000;padding:.75rem 1rem;background:var(--primary);color:var(--on-primary);font-weight:700;border-radius:.375rem}
+.skip-link:focus{top:.5rem}
+
+/* WHY: SC 2.4.7 Focus Visible. A thick two-part ring (outline + inner gap in page color) stays visible on any background.
+   We never write "outline:none" in the app's own styles. */
+:focus-visible{outline:.1875rem solid var(--focus);outline-offset:.125rem;box-shadow:0 0 0 .125rem var(--bg)}
+@media (forced-colors:active){:focus-visible{outline:.1875rem solid Highlight}}
+
+/* WHY: SC 2.3.3-style courtesy and the prefers-reduced-motion requirement: remove non-essential motion. */
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* ---------- controls: 44x44px minimum targets ---------- */
+button,select,input,textarea{font:inherit}
+button{min-height:2.75rem;min-width:2.75rem;padding:.5rem 1rem;border:.125rem solid var(--primary);background:var(--primary);color:var(--on-primary);border-radius:.375rem;cursor:pointer;font-weight:600}
+button:hover{text-decoration:underline}
+button.secondary{background:var(--bg);color:var(--text);border-color:var(--border)}
+input[type=text],input[type=email],input[type=search],input[type=number],select,textarea{min-height:2.75rem;padding:.5rem .75rem;border:.125rem solid var(--border);border-radius:.375rem;background:var(--bg);color:var(--text);max-width:100%}
+input[type=color]{min-width:2.75rem;min-height:2.75rem;padding:.125rem;border:.125rem solid var(--border);background:var(--bg);border-radius:.375rem}
+input[type=checkbox],input[type=radio]{width:1.5rem;height:1.5rem;accent-color:var(--primary);margin:0}
+input[type=range]{width:min(100%,20rem);min-height:2.75rem}
+.choice{display:inline-flex;align-items:center;gap:.5rem;min-height:2.75rem;padding-right:.75rem}
+/* WHY: SC 1.4.1. Invalid state = thicker border AND visible text message with an icon, never color alone. */
+input[aria-invalid="true"]{border-color:var(--danger);border-width:.25rem}
+fieldset{border:1px solid var(--border);border-radius:.375rem;margin:.75rem 0;padding:.5rem .75rem;min-width:0}
+legend{font-weight:700;padding:0 .25rem}
+.field{margin:.9rem 0} .field label{display:block;font-weight:600;margin-bottom:.25rem}
+
+/* ---------- layout ---------- */
+.site-header{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:flex-end;padding:1rem;border-bottom:.125rem solid var(--border)}
+.site-header p{margin:0}
+.theme{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.tablist{display:flex;flex-wrap:wrap;gap:.25rem;border-bottom:.125rem solid var(--border);padding:.5rem 1rem 0}
+/* WHY: the selected tab differs by a thick underline, bold weight and fill, not by color alone. */
+button[role=tab]{background:transparent;color:var(--text);border:.125rem solid transparent;border-bottom:.3125rem solid transparent;border-radius:.375rem .375rem 0 0;font-weight:500}
+button[role=tab][aria-selected=true]{border-color:var(--border);border-bottom-color:var(--primary);background:var(--surface);font-weight:700}
+main{max-width:80rem;margin:0 auto;padding:1rem}
+[role=tabpanel]{padding:.25rem 0}
+.demo-tabs .tablist{padding:.25rem .25rem 0}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr))}
+.card{border:1px solid var(--border);border-radius:.5rem;padding:1rem;background:var(--surface);min-width:0}
+.card h3{margin-top:0}
+.notes{margin-top:.75rem;border-top:1px solid var(--border);padding-top:.5rem}
+.notes h4{margin:.5rem 0 .25rem;font-size:1rem}
+.notes ul{margin:.25rem 0}
+.kv{display:grid;grid-template-columns:minmax(7rem,max-content) 1fr;gap:.25rem .75rem;margin:.5rem 0}
+.kv dt{font-weight:700} .kv dd{margin:0}
+@media (max-width:30rem){.kv{grid-template-columns:1fr}.kv dd{margin-bottom:.5rem}}
+.pair{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))}
+.badge{display:inline-block;padding:.1rem .6rem;border:.125rem solid var(--border);border-radius:1rem;font-weight:700;white-space:nowrap}
+.res-pass{border-color:var(--success);color:var(--success)}
+.res-fail{border-color:var(--danger);color:var(--danger);border-style:dashed}
+.sw{display:inline-block;width:1.25rem;height:1.25rem;border:.125rem solid var(--text);border-radius:.25rem;vertical-align:middle}
+
+/* ---------- tables ---------- */
+.table-scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--border);padding:.5rem .75rem;text-align:left;vertical-align:top}
+th{background:var(--code-bg)}
+caption{font-weight:700;text-align:left;padding:.5rem 0}
+th button{display:flex;justify-content:space-between;width:100%;background:transparent;color:var(--text);border-color:transparent;text-align:left;font-weight:700}
+/* WHY: sort direction is shown with a text arrow plus aria-sort, not only color. */
+th[aria-sort=ascending] button::after{content:" \25B2"} th[aria-sort=descending] button::after{content:" \25BC"}
+
+/* ---------- accordion, menu, modal, toast ---------- */
+.acc h4{margin:0}
+.acc-btn{display:flex;justify-content:space-between;width:100%;background:var(--bg);color:var(--text);border-color:var(--border);text-align:left;margin-top:.5rem}
+.acc-btn[aria-expanded=true]::after{content:"\2212"} .acc-btn[aria-expanded=false]::after{content:"+"}
+.acc-panel{padding:.5rem .75rem;border:1px solid var(--border);border-top:0;background:var(--bg)}
+.menu-wrap{position:relative;display:inline-block}
+.menu{position:absolute;z-index:20;list-style:none;margin:.25rem 0 0;padding:.25rem;min-width:12rem;background:var(--bg);border:.125rem solid var(--border);border-radius:.375rem}
+.menu button{display:block;width:100%;text-align:left;background:var(--bg);color:var(--text);border-color:transparent}
+.menu button:focus{background:var(--code-bg)}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);display:grid;place-items:center;padding:1rem;z-index:100}
+.modal{background:var(--bg);color:var(--text);border:.1875rem solid var(--border);border-radius:.5rem;max-width:32rem;width:100%;max-height:100%;overflow:auto;padding:1.25rem}
+.toasts-wrap{position:fixed;right:1rem;bottom:1rem;z-index:200;display:flex;flex-direction:column;gap:.5rem;max-width:min(24rem,calc(100% - 2rem));max-height:40vh;overflow:auto}
+.toast{background:var(--bg);color:var(--text);border:.125rem solid var(--border);border-left:.5rem solid var(--primary);padding:.6rem .9rem;border-radius:.375rem;margin-bottom:.5rem}
+.err-summary{border:.1875rem solid var(--danger);padding:.75rem 1rem;border-radius:.375rem;margin:.75rem 0;background:var(--bg)}
+.err-summary h4{margin:0 0 .25rem}
+
+/* ---------- ARIA inspector overlay ---------- */
+.insp-wrap{position:relative}
+#inspLayer{position:absolute;inset:0;pointer-events:none;z-index:5;overflow:visible}
+.insp-box{position:absolute;border:.125rem dashed var(--focus)}
+.insp-tag{position:absolute;background:#1a1d21;color:#fff;border:1px solid #fff;font:.72rem/1.3 ui-monospace,Menlo,Consolas,monospace;padding:.1rem .3rem;max-width:18rem;white-space:normal;transform:translateY(-100%)}
+
+/* ---------- key log ---------- */
+#eventLog{max-height:14rem;overflow:auto;border:1px solid var(--border);border-radius:.375rem;padding:.5rem;background:var(--bg);font-size:.9rem}
+#eventLog div{padding:.15rem 0;border-bottom:1px solid var(--code-bg)}
+
+/* ---------- Module 2 ---------- */
+.preview{padding:1rem;border:.125rem solid var(--border);border-radius:.375rem;margin:.5rem 0}
+.pv-ui{display:inline-block;padding:.4rem .8rem;border:.1875rem solid currentColor;border-radius:.375rem;margin-top:.5rem}
+.ratio-big{font-size:2.2rem;font-weight:800;line-height:1.1}
+.vp{position:relative;overflow:auto;height:min(70vh,36rem);border:.125rem solid var(--border);background:var(--surface)}
+.zoomed{transform-origin:0 0}
+.zoomed.ts, .zoomed.ts *{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important} /* SC 1.4.12 values */
+.zoomed.ts p{margin-bottom:2em!important}
+.lens{position:absolute;width:15rem;height:10rem;border:.25rem solid var(--focus);border-radius:.5rem;overflow:hidden;background:#fff;box-shadow:0 0 0 .125rem var(--bg);pointer-events:none;z-index:10}
+#lensInner{position:absolute;left:0;top:0;transform-origin:0 0}
+
+/* ---------- Module 3 stage ---------- */
+.stage-grid{display:grid;gap:1rem;grid-template-columns:1fr}
+.stage-grid.side{grid-template-columns:repeat(auto-fit,minmax(min(100%,36rem),1fr))}
+.stage-scroll{overflow:auto;max-height:75vh;border:.125rem solid var(--border);background:var(--surface)}
+.pane{min-width:0}
+.pane-title{margin:.25rem 0}
+/* Diff view: dashed outline = problem in Before, solid outline = fix in After (shape differs, so not color-only). */
+.diff .sx.before [data-issue]{outline:.1875rem dashed #c2410c;outline-offset:.125rem}
+.diff .sx.after [data-fix]{outline:.1875rem solid #1b6e2f;outline-offset:.125rem}
+.flash{outline:.375rem solid #7c3aed!important;outline-offset:.2rem}
+
+/* ---------- Module 4 ---------- */
+.principle{margin:1rem 0}
+.item legend{font-size:1rem}
+.item .notes-in{width:100%;margin-top:.25rem}
+.print-only{display:none}
+
+/* =========================================================
+   SAMPLE UI (used by Modules 2 and 3). Always light-themed so contrast scans are meaningful.
+   .sx.before = DELIBERATELY BROKEN.  .sx.after = fixed.
+   ========================================================= */
+.sx{background:#fff;color:#1a1a1a;font:16px/1.5 Arial,Helvetica,sans-serif;border:.125rem solid #6b7280;container-type:inline-size;text-align:left;min-width:0}
+.sx h4,.sx h5,.sx h6{margin:.4em 0 .25em;color:inherit;font-size:1.1em}
+.sx p{margin:.3em 0} .sx ul{list-style:none;margin:0;padding:0}
+.sx code{background:#e1e6ed;color:#1a1a1a;border:0}
+.sx-meta{background:#eef2f7;color:#1a1a1a;border-bottom:1px solid #6b7280;padding:.4rem .75rem;font-size:.8rem}
+.sx-header{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;padding:.75rem;background:#0b3a75;color:#fff}
+.sx-brand{font-weight:700;font-size:1.2em}
+.sx-nav{display:flex;flex-wrap:wrap;gap:.75rem}
+.sx .sx-header a{color:#fff} /* higher specificity than ".sx a" so header links stay white on the dark bar */
+.sx-ticker{padding:.4rem .75rem;background:#fff3cd;color:#1a1a1a;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+.sx-hero{padding:1rem;background:#f1f5f9;color:#1a1a1a}
+.sx-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;padding:1rem}
+.sx-card{border:1px solid #6b7280;padding:.75rem;background:#fff}
+.sx-card img{max-width:100%;height:auto;display:block}
+.sx-section{padding:0 1rem 1rem}
+.sx-status{min-height:1.5em;padding:.25rem 1rem}
+.sx a{color:#0b4fa8}
+.sx button,.sx input{font-family:inherit}
+.sx input.sx-in{min-height:0;border:1px solid #6b7280;background:#fff;color:#1a1a1a;padding:.3rem .5rem}
+.sx button{min-width:0;min-height:0}
+
+/* ----- AFTER ----- */
+.sx.after .sx-skip{position:absolute;left:-999rem;background:#0b4fa8;color:#fff;padding:.5rem 1rem}
+.sx.after .sx-skip:focus{position:static;display:block}
+.sx.after .sx-nav a{display:inline-block;padding:.5rem .25rem}
+.sx.after .sx-hero p{color:#3f4650}
+.sx.after input.sx-in{border:.125rem solid #6b7280;min-height:2.75rem;max-width:100%}
+.sx.after button{background:#0b4fa8;color:#fff;border:.125rem solid #0b4fa8;border-radius:.375rem;min-height:2.75rem;min-width:2.75rem;padding:.4rem .9rem;font-weight:700}
+.sx.after .sx-err{display:block;color:#a1001a;font-weight:700}
+.sx.after .sx-header input.sx-in{border-color:#fff}
+.sx.after .sx-field{margin:.6rem 0}
+.sx.after .sx-field label{display:block;font-weight:700}
+.sx.after :focus-visible{outline:.1875rem solid #0b4fa8;outline-offset:.125rem;box-shadow:0 0 0 .125rem #fff}
+.sx.after .sx-header :focus-visible{outline-color:#fff;box-shadow:0 0 0 .125rem #0b3a75}
+.sx.after input[aria-invalid="true"]{border-color:#a1001a;border-width:.25rem}
+.sx.after table{border-collapse:collapse;width:100%}
+.sx.after th,.sx.after td{border:1px solid #6b7280;padding:.4rem .6rem;text-align:left;background:#fff;color:#1a1a1a}
+.sx.after th{background:#e1e6ed}
+.sx.after caption{font-weight:700;text-align:left;padding:.3rem 0}
+@container (max-width:40rem){.sx.after .sx-cards{grid-template-columns:1fr}}
+
+/* ----- BEFORE: every rule below is a deliberate failure ----- */
+.sx.before{font-size:12px}
+.sx.before .sx-page{width:600px}                                    /* i22: fixed width, no reflow */
+.sx.before .sx-cards{grid-template-columns:repeat(3,180px);width:600px;gap:8px}
+.sx.before .sx-lowc{color:#b0b0b0}                                  /* i01: ~2.2:1 */
+.sx.before input.sx-in{border:1px solid #d9d9d9;font-size:12px;width:160px;display:block;margin:4px 0} /* i02 */
+.sx.before input.sx-in.bad{border-color:#e00000}                    /* i08: color-only error */
+.sx.before button,.sx.before .sx-btn{background:#6f9cf0;color:#fff;border:0;padding:2px 6px;font-size:12px;cursor:pointer;display:inline-block}
+.sx.before .sx-desc{height:36px;overflow:hidden;font-size:11px;line-height:1.2} /* i18, i23: fixed px + clipping */
+.sx.before :focus,.sx.before :focus-visible{outline:none!important;box-shadow:none!important} /* i09: focus indicator removed ON PURPOSE */
+.sx.before table{border-collapse:collapse}
+.sx.before td{border:1px solid #d9d9d9;padding:2px 6px}
+.sx.before .sx-trap{margin:8px 16px;padding:6px;background:#f1f5f9}
+
+/* =========================================================
+   PRINT: show the audit report cleanly
+   ========================================================= */
+@media print{
+  :root,:root[data-theme]{--bg:#fff;--surface:#fff;--text:#000;--muted:#222;--link:#000;--border:#444;--code-bg:#eee;--primary:#000;--on-primary:#fff;--danger:#000;--success:#000;--focus:#000}
+  nav,.site-header .theme,.skip-link,.no-print,.toasts-wrap,.tablist{display:none!important}
+  .print-only{display:block}
+  .card{break-inside:avoid;border-color:#444}
+  a{text-decoration:underline}
+}
+</style>
+</head>
+<body>
+
+<!-- WHY: SVG filters for the colour-blindness simulator. aria-hidden + zero size keeps them out of the accessibility tree.
+     (Matrices are common approximations of dichromacy, not clinically exact.) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="f-protan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0"/></filter>
+    <filter id="f-deutan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0"/></filter>
+    <filter id="f-tritan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0"/></filter>
+    <filter id="f-achroma" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0 0 0 1 0"/></filter>
+  </defs>
+</svg>
+
+<!-- WHY: everything except the modal/toasts lives inside #app so the modal can make the page inert (focus trap + hides background from AT). -->
+<div id="app">
+  <!-- WHY: invisible focus start point for the skip-link demo in Module 1; the next Tab lands on the skip link. -->
+  <div id="topAnchor" tabindex="-1"></div>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header">
+    <div>
+      <h1>A11y Lab</h1>
+      <p class="hint">Learn, test and fix accessibility against WCAG 2.1 Level AA.</p>
+    </div>
+    <div class="theme">
+      <!-- WHY: native, visibly labeled <select>: keyboard and screen reader support for free. -->
+      <label for="theme">Theme</label>
+      <select id="theme">
+        <option value="auto">Match system</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="hc">High contrast</option>
+      </select>
+    </div>
+  </header>
+
+  <nav aria-label="Lab modules">
+    <!-- WAI-ARIA tabs pattern: roving tabindex, arrow keys, Home/End, automatic activation. -->
+    <div class="tablist" role="tablist" aria-label="Modules" id="mainTabs">
+      <button type="button" role="tab" id="tab-1" aria-selected="true" aria-controls="panel-1" tabindex="0">1. Keyboard &amp; screen reader</button>
+      <button type="button" role="tab" id="tab-2" aria-selected="false" aria-controls="panel-2" tabindex="-1">2. Contrast &amp; magnification</button>
+      <button type="button" role="tab" id="tab-3" aria-selected="false" aria-controls="panel-3" tabindex="-1">3. Remediation workshop</button>
+      <button type="button" role="tab" id="tab-4" aria-selected="false" aria-controls="panel-4" tabindex="-1">4. Audit report &amp; checklist</button>
+    </div>
+  </nav>
+
+  <!-- WHY tabindex="-1": lets the skip link move focus here (SC 2.4.1) without adding a tab stop. -->
+  <main id="main" tabindex="-1">
+
+  <!-- ===================================================== MODULE 1 ===================================================== -->
+  <div role="tabpanel" id="panel-1" aria-labelledby="tab-1" tabindex="0">
+    <h2>Module 1: Keyboard &amp; screen reader lab</h2>
+    <p>A gallery of accessible components built with native HTML first and ARIA only where needed. Read the source comments to see why each choice was made.</p>
+
+    <div class="card">
+      <label class="choice">
+        <!-- A native checkbox with role="switch": the one place ARIA adds meaning HTML lacks (on/off semantics). -->
+        <input type="checkbox" role="switch" id="inspToggle" aria-describedby="inspHint">
+        ARIA Inspector
+      </label>
+      <p class="hint" id="inspHint">Overlays each component below with its role, ARIA states and accessible name. A text version appears under the gallery.</p>
+    </div>
+
+    <div class="insp-wrap">
+      <div id="m1Gallery" class="grid">
+
+        <!-- 1. Skip link -->
+        <section class="card" aria-labelledby="h-skip">
+          <h3 id="h-skip">Skip link (SC 2.4.1)</h3>
+          <p>The "Skip to main content" link at the very top of this page is the first tab stop. It is hidden until it receives focus, then lets keyboard users bypass the header and navigation.</p>
+          <button type="button" class="secondary" id="skipDemoBtn">Move focus to top of page</button>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Activate the button, then press <kbd>Tab</kbd>: the skip link appears.</li><li>Press <kbd>Enter</kbd> on it: focus moves to the main region.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li>None. A native link to <code>#main</code> plus <code>tabindex="-1"</code> on the target.</li></ul>
+          </div>
+        </section>
+
+        <!-- 2. Tabs -->
+        <section class="card demo-tabs" aria-labelledby="h-tabs">
+          <h3 id="h-tabs">Tabs</h3>
+          <div class="tablist" role="tablist" aria-label="Keyboard tips" id="demoTabs">
+            <button type="button" role="tab" id="dt-1" aria-selected="true" aria-controls="dp-1" tabindex="0">Overview</button>
+            <button type="button" role="tab" id="dt-2" aria-selected="false" aria-controls="dp-2" tabindex="-1">Keys</button>
+            <button type="button" role="tab" id="dt-3" aria-selected="false" aria-controls="dp-3" tabindex="-1">Why roving?</button>
+          </div>
+          <div role="tabpanel" id="dp-1" aria-labelledby="dt-1" tabindex="0"><p>Only the active tab is in the Tab order. The tablist is one stop, then arrow keys move within it.</p></div>
+          <div role="tabpanel" id="dp-2" aria-labelledby="dt-2" tabindex="0" hidden><p><kbd>←</kbd> <kbd>→</kbd> move and activate, <kbd>Home</kbd> first tab, <kbd>End</kbd> last tab.</p></div>
+          <div role="tabpanel" id="dp-3" aria-labelledby="dt-3" tabindex="0" hidden><p>Roving tabindex keeps long widgets from forcing users to press Tab dozens of times.</p></div>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Tab into the tab row, use arrows, Home and End. Tab again: you land in the panel.</li><li>Screen reader: hear "tab, 2 of 3, selected".</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>role=tablist</code> / <code>tab</code> / <code>tabpanel</code></li><li><code>aria-selected</code>, <code>aria-controls</code>, <code>aria-labelledby</code>, roving <code>tabindex</code></li></ul>
+          </div>
+        </section>
+
+        <!-- 3. Accordion -->
+        <section class="card" aria-labelledby="h-acc">
+          <h3 id="h-acc">Accordion</h3>
+          <div class="acc">
+            <!-- WHY: each trigger is a real <button> inside a heading, so Enter/Space and the heading outline come free. -->
+            <h4><button type="button" class="acc-btn" id="acc-b1" aria-expanded="false" aria-controls="acc-p1">What is a landmark?</button></h4>
+            <div class="acc-panel" id="acc-p1" role="region" aria-labelledby="acc-b1" hidden><p>A region such as <code>header</code>, <code>nav</code>, <code>main</code> or <code>footer</code> that lets screen reader users jump around.</p></div>
+            <h4><button type="button" class="acc-btn" id="acc-b2" aria-expanded="false" aria-controls="acc-p2">What is an accessible name?</button></h4>
+            <div class="acc-panel" id="acc-p2" role="region" aria-labelledby="acc-b2" hidden><p>The text a screen reader announces for a control, from its label, <code>aria-label</code>, content or <code>alt</code>.</p></div>
+            <h4><button type="button" class="acc-btn" id="acc-b3" aria-expanded="false" aria-controls="acc-p3">When is ARIA needed?</button></h4>
+            <div class="acc-panel" id="acc-p3" role="region" aria-labelledby="acc-b3" hidden><p>Only when native HTML cannot express the role or state. No ARIA is better than bad ARIA.</p></div>
+          </div>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Tab to a header, press <kbd>Enter</kbd> or <kbd>Space</kbd>. Screen reader: "expanded" / "collapsed".</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>aria-expanded</code>, <code>aria-controls</code> on the button; <code>role=region</code> + <code>aria-labelledby</code> on panels</li></ul>
+          </div>
+        </section>
+
+        <!-- 4. Modal dialog -->
+        <section class="card" aria-labelledby="h-modal">
+          <h3 id="h-modal">Modal dialog</h3>
+          <button type="button" id="modalOpen" aria-haspopup="dialog">Open dialog</button>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Focus moves into the dialog. Tab and Shift+Tab cycle inside it only.</li><li><kbd>Esc</kbd> closes it and focus returns to this button.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>role=dialog</code>, <code>aria-modal=true</code>, <code>aria-labelledby</code>, <code>aria-describedby</code></li><li>The page behind is made <code>inert</code>. (A native <code>&lt;dialog&gt;</code> with <code>showModal()</code> is the simpler modern alternative.)</li></ul>
+          </div>
+        </section>
+
+        <!-- 5. Menu button -->
+        <section class="card" aria-labelledby="h-menu">
+          <h3 id="h-menu">Dropdown menu (menu button)</h3>
+          <div class="menu-wrap">
+            <button type="button" id="menuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">Actions</button>
+            <ul class="menu" id="menu" role="menu" aria-labelledby="menuBtn" hidden>
+              <li role="none"><button type="button" role="menuitem" tabindex="-1">Copy</button></li>
+              <li role="none"><button type="button" role="menuitem" tabindex="-1">Rename</button></li>
+              <li role="none"><button type="button" role="menuitem" tabindex="-1">Archive</button></li>
+              <li role="none"><button type="button" role="menuitem" tabindex="-1">Delete</button></li>
+            </ul>
+          </div>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li><kbd>Enter</kbd>, <kbd>Space</kbd> or <kbd>↓</kbd> opens (<kbd>↑</kbd> opens on last item). Arrows wrap, <kbd>Home</kbd>/<kbd>End</kbd> jump, <kbd>Esc</kbd> closes and returns focus.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>aria-haspopup=menu</code>, <code>aria-expanded</code>, <code>role=menu</code> / <code>menuitem</code> / <code>none</code></li></ul>
+          </div>
+        </section>
+
+        <!-- 6. Form -->
+        <section class="card" aria-labelledby="h-form">
+          <h3 id="h-form">Form with validation</h3>
+          <!-- WHY novalidate: we show our own accessible errors instead of the browser's inconsistent bubbles. -->
+          <form id="demoForm" novalidate>
+            <div id="errSummary" class="err-summary" tabindex="-1" aria-labelledby="errTitle" hidden>
+              <h4 id="errTitle">Please fix the following</h4>
+              <ul id="errList"></ul>
+            </div>
+            <div class="field">
+              <label for="f-name">Full name <span class="hint">(required)</span></label>
+              <!-- aria-required is shown for teaching; native "required" is an equally valid choice. -->
+              <input type="text" id="f-name" autocomplete="name" aria-required="true" aria-describedby="err-name">
+              <span class="err" id="err-name"></span>
+            </div>
+            <div class="field">
+              <label for="f-email">Email <span class="hint">(required)</span></label>
+              <input type="email" id="f-email" autocomplete="email" aria-required="true" aria-describedby="hint-email err-email">
+              <span class="hint" id="hint-email">Example: name@example.com</span><br>
+              <span class="err" id="err-email"></span>
+            </div>
+            <div class="field">
+              <label class="choice"><input type="checkbox" id="f-terms" aria-required="true" aria-describedby="err-terms"> I accept the terms (required)</label><br>
+              <span class="err" id="err-terms"></span>
+            </div>
+            <button type="submit">Submit</button>
+          </form>
+          <!-- WHY: the live region exists on page load, empty; changing its text is what gets announced (SC 4.1.3). -->
+          <p id="formStatus" role="status"></p>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Submit empty: focus jumps to the error summary; its links move focus to each field.</li><li>Screen reader: fields announce "invalid" and read their error text.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>aria-required</code>, <code>aria-invalid</code>, <code>aria-describedby</code>, <code>role=status</code> (polite live region)</li></ul>
+          </div>
+        </section>
+
+        <!-- 7. Toast -->
+        <section class="card" aria-labelledby="h-toast">
+          <h3 id="h-toast">Toast / status message (SC 4.1.3)</h3>
+          <p>Messages appear in the bottom-right corner and stay until dismissed (no time limit, SC 2.2.1).</p>
+          <button type="button" id="toastBtn">Show a status message</button>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Screen reader announces the message without moving focus.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>role=status</code> (implicit <code>aria-live=polite</code>). Use <code>role=alert</code> only for urgent errors.</li></ul>
+          </div>
+        </section>
+
+        <!-- 8. Sortable data table -->
+        <section class="card" aria-labelledby="h-table">
+          <h3 id="h-table">Data table with sortable columns</h3>
+          <div class="table-scroll" role="region" aria-label="Sortable table of success criteria" tabindex="0">
+            <table id="srt">
+              <caption>Selected WCAG 2.1 success criteria</caption>
+              <thead><tr>
+                <th scope="col"><button type="button" data-col="0">SC</button></th>
+                <th scope="col"><button type="button" data-col="1">Name</button></th>
+                <th scope="col"><button type="button" data-col="2">Level</button></th>
+              </tr></thead>
+              <tbody id="srtBody"></tbody>
+            </table>
+          </div>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Activate a column button; a status message announces the sort.</li><li>Screen reader table navigation (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+arrows in NVDA/JAWS) reads headers with each cell.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li><code>aria-sort</code> on the active <code>th</code>; native <code>caption</code>, <code>th scope</code></li></ul>
+          </div>
+        </section>
+
+        <!-- 9. Focus indicator -->
+        <section class="card" aria-labelledby="h-focus">
+          <h3 id="h-focus">Focus indicator (SC 2.4.7)</h3>
+          <p>Tab through these and watch the ring: <a href="#h-focus">a link</a>, <button type="button" class="secondary">a button</button>, <input type="text" aria-label="Sample text field" placeholder="a text field">.</p>
+          <pre><code>:focus-visible {
+  outline: .1875rem solid var(--focus);
+  outline-offset: .125rem;
+  box-shadow: 0 0 0 .125rem var(--bg);
+}</code></pre>
+          <div class="notes">
+            <h4>What to test</h4>
+            <ul><li>Switch themes: the ring stays at 3:1 or better against its surroundings in all three.</li></ul>
+            <h4>ARIA used</h4>
+            <ul><li>None. This is pure CSS.</li></ul>
+          </div>
+        </section>
+      </div>
+      <!-- Overlay for the inspector (decorative, so hidden from AT). Not inside #m1Gallery so observing the gallery cannot loop. -->
+      <div id="inspLayer" aria-hidden="true"></div>
+    </div>
+
+    <details class="card">
+      <summary>ARIA Inspector text output (screen reader friendly)</summary>
+      <ul id="inspOut"><li>Turn on the ARIA Inspector to fill this list.</li></ul>
+    </details>
+
+    <section class="card" aria-labelledby="h-log">
+      <h3 id="h-log">Keyboard event log and focus tracker (SC 2.4.3)</h3>
+      <p>Shows every key you press and where focus moves, so you can check that focus order is logical. The log is not a live region (it would be far too noisy).</p>
+      <div class="row">
+        <button type="button" class="secondary" id="logPause" aria-pressed="false">Pause logging</button>
+        <button type="button" class="secondary" id="logClear">Clear log</button>
+      </div>
+      <h4>Currently focused element</h4>
+      <dl class="kv">
+        <dt>Tag</dt><dd id="fi-tag">none yet</dd>
+        <dt>Role</dt><dd id="fi-role">none yet</dd>
+        <dt>Accessible name</dt><dd id="fi-name">none yet</dd>
+      </dl>
+      <h4 id="h-log-list">Event log (newest first)</h4>
+      <!-- tabindex=0 so keyboard users can scroll this region (SC 2.1.1). aria-live="off" overrides role=log's implicit polite. -->
+      <div id="eventLog" role="log" aria-live="off" aria-labelledby="h-log-list" tabindex="0"></div>
+    </section>
+  </div>
+
+  <!-- ===================================================== MODULE 2 ===================================================== -->
+  <div role="tabpanel" id="panel-2" aria-labelledby="tab-2" tabindex="0" hidden>
+    <h2>Module 2: Contrast &amp; magnification tester</h2>
+    <p class="hint">These tools are simulations to build intuition. Always confirm with real tools: your OS magnifier, browser zoom (Ctrl/Cmd +), and NVDA, JAWS or VoiceOver.</p>
+
+    <h3>Contrast checker</h3>
+    <div class="grid">
+      <div class="card">
+        <fieldset>
+          <legend>Text colour</legend>
+          <div class="row">
+            <label for="fgPick">Picker</label><input type="color" id="fgPick" value="#595959">
+            <label for="fgHex">Hex</label><input type="text" id="fgHex" value="#595959" maxlength="7" size="9" autocomplete="off" spellcheck="false" aria-describedby="fgErr">
+          </div>
+          <span class="err" id="fgErr"></span>
+        </fieldset>
+        <fieldset>
+          <legend>Background colour</legend>
+          <div class="row">
+            <label for="bgPick">Picker</label><input type="color" id="bgPick" value="#ffffff">
+            <label for="bgHex">Hex</label><input type="text" id="bgHex" value="#ffffff" maxlength="7" size="9" autocomplete="off" spellcheck="false" aria-describedby="bgErr">
+          </div>
+          <span class="err" id="bgErr"></span>
+        </fieldset>
+        <button type="button" class="secondary" id="swapBtn">Swap colours</button>
+        <fieldset>
+          <legend>Preview text</legend>
+          <div class="row">
+            <label for="pvSize">Font size (px)</label><input type="number" id="pvSize" value="16" min="8" max="96">
+            <label class="choice"><input type="checkbox" id="pvBold"> Bold</label>
+          </div>
+        </fieldset>
+      </div>
+      <div class="card">
+        <p class="hint">Contrast ratio</p>
+        <p class="ratio-big"><span id="ratioOut">0.00:1</span></p>
+        <p class="hint">Ratios are truncated, never rounded up, so 4.499 is not shown as a pass for 4.5.</p>
+        <!-- Debounced polite summary for screen readers; the table itself is not live (it would repeat on every keystroke). -->
+        <p class="sr-only" id="srSummary" role="status"></p>
+        <div class="table-scroll" role="region" aria-label="Contrast results" tabindex="0">
+          <table>
+            <caption>WCAG results for the chosen colours</caption>
+            <thead><tr><th scope="col">Criterion</th><th scope="col">SC</th><th scope="col">Needs</th><th scope="col">Result</th></tr></thead>
+            <tbody id="resBody"></tbody>
+          </table>
+        </div>
+        <p class="hint">Large text means at least 24px regular, or at least 18.66px (14pt) bold.</p>
+      </div>
+      <div class="card">
+        <div class="preview" id="preview">
+          <p id="pvText">The quick brown fox jumps over the lazy dog.</p>
+          <span class="pv-ui">UI component or graphic sample</span>
+        </div>
+        <p id="pvClass"></p>
+        <h4>Suggest nearest passing colour</h4>
+        <div class="row">
+          <label for="sugTarget">Target</label>
+          <select id="sugTarget">
+            <option value="4.5">AA normal text (4.5:1)</option>
+            <option value="3">AA large text or UI (3:1)</option>
+            <option value="7">AAA normal text (7:1)</option>
+            <option value="4.5L">AAA large text (4.5:1)</option>
+          </select>
+          <label for="sugWhich">Adjust</label>
+          <select id="sugWhich"><option value="fg">Text colour</option><option value="bg">Background colour</option></select>
+        </div>
+        <div class="row"><button type="button" id="sugBtn">Suggest colour</button><button type="button" class="secondary" id="sugApply" hidden>Apply suggestion</button></div>
+        <p id="sugOut" role="status"></p>
+      </div>
+    </div>
+
+    <h3>Page scanner</h3>
+    <p>Scans the Module 3 sample UI (both Before and After), reads each text element's computed colours and lists every failure. It cannot see text over images or gradients.</p>
+    <button type="button" id="scanBtn">Scan sample UI</button>
+    <p id="scanStat" role="status"></p>
+    <div id="scanOut" class="table-scroll" role="region" aria-label="Scan results" tabindex="0" hidden></div>
+
+    <h3>Colour-blindness &amp; magnification tester</h3>
+    <div class="grid">
+      <fieldset>
+        <legend>Sample to test</legend>
+        <label class="choice"><input type="radio" name="tgt" value="before" checked> Before (broken)</label>
+        <label class="choice"><input type="radio" name="tgt" value="after"> After (fixed)</label>
+      </fieldset>
+      <fieldset>
+        <legend>Colour-blindness simulation</legend>
+        <label class="choice"><input type="radio" name="vis" value="none" checked> None</label>
+        <label class="choice"><input type="radio" name="vis" value="f-protan"> Protanopia</label>
+        <label class="choice"><input type="radio" name="vis" value="f-deutan"> Deuteranopia</label>
+        <label class="choice"><input type="radio" name="vis" value="f-tritan"> Tritanopia</label>
+        <label class="choice"><input type="radio" name="vis" value="f-achroma"> Achromatopsia</label>
+      </fieldset>
+      <fieldset>
+        <legend>Magnification</legend>
+        <div class="row"><label for="zoom">Zoom</label><input type="range" id="zoom" min="100" max="400" step="25" value="100"><output id="zoomOut" for="zoom">100%</output></div>
+        <p class="hint">SC 1.4.4: text must resize to 200% without loss of content or functionality.</p>
+        <label class="choice"><input type="checkbox" id="reflow"> Reflow test: 320 CSS px wide (SC 1.4.10)</label><br>
+        <label class="choice"><input type="checkbox" id="tspace"> Text-spacing test (SC 1.4.12)</label>
+        <p class="hint">Text spacing: line height 1.5, paragraph spacing 2x, letter spacing 0.12em, word spacing 0.16em.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Lens magnifier</legend>
+        <label class="choice"><input type="checkbox" id="lensOn"> Show lens</label>
+        <p class="hint" id="lensHelp">Move the mouse over the sample, or Tab through it: the lens follows. For keyboard control, focus the button below, then use arrow keys to move (Shift = faster) and <kbd>+</kbd> / <kbd>-</kbd> to change zoom.</p>
+        <button type="button" class="secondary" id="lensKbd" aria-describedby="lensHelp">Lens keyboard control</button>
+        <p id="lensStat" role="status" class="hint"></p>
+      </fieldset>
+    </div>
+    <p id="magResult" role="status"></p>
+    <div class="vp" id="m2Vp" role="region" aria-label="Sample UI test viewport (scrollable)" tabindex="0">
+      <div id="m2Zoom" class="zoomed"><div id="m2Inner"></div></div>
+      <div id="lens" class="lens" aria-hidden="true" hidden><div id="lensInner"></div></div>
+    </div>
+  </div>
+
+  <!-- ===================================================== MODULE 3 ===================================================== -->
+  <div role="tabpanel" id="panel-3" aria-labelledby="tab-3" tabindex="0" hidden>
+    <h2>Module 3: WCAG 2.1 remediation workshop</h2>
+    <p>Find the problems in the "Before" page, then compare with the "After" page where each is fixed. The Before page is <strong>deliberately inaccessible</strong>.</p>
+
+    <h3>Sample UI</h3>
+    <fieldset>
+      <legend>View</legend>
+      <label class="choice"><input type="radio" name="view" value="before"> Before</label>
+      <label class="choice"><input type="radio" name="view" value="after"> After</label>
+      <label class="choice"><input type="radio" name="view" value="side" checked> Side by side</label>
+      <label class="choice"><input type="radio" name="view" value="diff"> Diff (highlight issues)</label>
+    </fieldset>
+    <p class="hint" id="diffLegend">Diff view: a dashed outline marks a problem in Before, a solid outline marks its fix in After.</p>
+    <label class="choice"><input type="checkbox" id="hazards" aria-describedby="hazNote"> Enable intentional hazards</label>
+    <p class="hint" id="hazNote">Off by default so this app stays usable. When on: positive tabindex values scramble the tab order of this whole page, the Before newsletter box traps keyboard focus (press <kbd>Esc</kbd> to escape), and the tickers auto-update. Untick to restore.</p>
+    <div id="m3Stage" class="stage-grid side"></div>
+
+    <h3>Issue tracker</h3>
+    <div class="card">
+      <progress id="prog" max="1" value="0" aria-label="Issues found"></progress>
+      <p id="progText" role="status"></p>
+    </div>
+    <div id="issueList"></div>
+  </div>
+
+  <!-- ===================================================== MODULE 4 ===================================================== -->
+  <div role="tabpanel" id="panel-4" aria-labelledby="tab-4" tabindex="0" hidden>
+    <h2>Module 4: Audit report &amp; checklist</h2>
+    <div class="card">
+      <h3>Be honest about automation</h3>
+      <p>Automated tools (axe DevTools, Lighthouse, WAVE) detect only a portion of WCAG problems. Commonly cited estimates range from roughly 30% to 57%, depending on how issues are counted. They cannot judge whether alt text is meaningful, whether focus order makes sense, or whether an interaction is usable. Manual testing with a keyboard and a screen reader is required.</p>
+    </div>
+
+    <h3>WCAG 2.1 Level A and AA checklist</h3>
+    <p>Mark each criterion Pass, Fail or Not applicable. Anything left unmarked counts as "Not tested". Criteria are grouped by the four POUR principles.</p>
+    <div id="checklist"></div>
+
+    <div class="row no-print">
+      <button type="button" id="genBtn">Generate report</button>
+      <button type="button" class="secondary" id="copyBtn">Copy report as text</button>
+      <button type="button" class="secondary" id="printBtn">Print report</button>
+    </div>
+    <div id="reportOut" class="card" aria-live="off"></div>
+
+    <section class="no-print" aria-labelledby="h-guide">
+      <h3 id="h-guide">Test-method guide</h3>
+      <div class="grid">
+        <div class="card"><h4>Keyboard-only testing</h4>
+          <ol><li>Unplug or ignore the mouse.</li><li>Press <kbd>Tab</kbd> from the top: is there a skip link? Is every control reachable, in a logical order?</li><li>Can you always see where focus is?</li><li>Operate every control with <kbd>Enter</kbd>, <kbd>Space</kbd> and arrow keys. Can you leave every widget (<kbd>Esc</kbd>, <kbd>Tab</kbd>)?</li></ol></div>
+        <div class="card"><h4>Screen reader testing</h4>
+          <ul><li><strong>NVDA</strong> with Firefox or Chrome (Windows, free).</li><li><strong>JAWS</strong> with Chrome (Windows, commercial).</li><li><strong>VoiceOver</strong> with Safari (macOS: <kbd>Cmd</kbd>+<kbd>F5</kbd>; iOS: Settings, Accessibility).</li><li><strong>TalkBack</strong> with Chrome (Android).</li></ul>
+          <p>Check: landmarks and headings lists, form labels, button names, live-region announcements, table navigation.</p></div>
+        <div class="card"><h4>Zoom and magnification</h4>
+          <ul><li>Browser zoom to 200% (SC 1.4.4) and 400% (SC 1.4.10): no clipped text, no horizontal scrolling, nothing lost.</li><li>Test the OS magnifier (Windows Magnifier, macOS Zoom).</li><li>Apply a text-spacing bookmarklet or extension for SC 1.4.12.</li></ul></div>
+        <div class="card"><h4>Contrast tools</h4>
+          <ul><li>Browser DevTools colour picker shows the ratio.</li><li>TPGi Colour Contrast Analyser (desktop eyedropper).</li><li>WebAIM Contrast Checker (web).</li><li>Check text (4.5:1 / 3:1 large) and UI components and graphics (3:1) in every theme and state.</li></ul></div>
+        <div class="card"><h4>Automated tools</h4>
+          <ul><li><strong>axe DevTools</strong>, <strong>Lighthouse</strong> (uses the axe engine), <strong>WAVE</strong>.</li><li>Run them early and in CI to catch the easy 30-57%, then do the manual passes above.</li></ul></div>
+      </div>
+      <p class="hint">Reference: <a href="https://www.w3.org/WAI/WCAG21/quickref/">WCAG 2.1 Quick Reference</a> · <a href="https://www.w3.org/WAI/ARIA/apg/">ARIA Authoring Practices Guide</a></p>
+    </section>
+  </div>
+
+  </main>
+  <footer style="padding:1rem;border-top:.125rem solid var(--border)">
+    <p class="hint">A11y Lab is a teaching aid. It cannot replace testing with real assistive technology and real users.</p>
+  </footer>
+</div>
+
+<!-- Outside #app so it stays interactive while #app is inert. -->
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc">
+    <h2 id="modalTitle">Subscribe to updates?</h2>
+    <p id="modalDesc">Enter your email to get accessibility tips. Press Escape to cancel.</p>
+    <div class="field"><label for="modalEmail">Email</label><input type="email" id="modalEmail" autocomplete="email"></div>
+    <div class="row"><button type="button" id="modalConfirm">Subscribe</button><button type="button" class="secondary" id="modalClose">Cancel</button></div>
+  </div>
+</div>
+
+<div class="toasts-wrap">
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <button type="button" class="secondary" id="toastClear" hidden>Dismiss all messages</button>
+</div>
+
+<!-- WHY: one global polite status region, present from page load, reused for theme/tab/sort announcements. -->
+<div id="sr-status" class="sr-only" role="status"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* WHY: announce() clears then sets text after a tick, so repeating the same message is still announced. */
+const srStatus = $('#sr-status'); let annTimer;
+function announce(msg) { clearTimeout(annTimer); srStatus.textContent = ''; annTimer = setTimeout(() => { srStatus.textContent = msg; }, 60); }
+
+/* ---------- toast ---------- */
+const toastBox = $('#toasts'), toastClear = $('#toastClear');
+function toast(msg, kind = 'Status') {
+  const d = document.createElement('div'); d.className = 'toast';
+  const b = document.createElement('strong'); b.textContent = kind + ': ';
+  d.append(b, document.createTextNode(msg));
+  toastBox.append(d);
+  while (toastBox.children.length > 3) toastBox.firstElementChild.remove();
+  toastClear.hidden = false;
+}
+toastClear.addEventListener('click', () => { toastBox.replaceChildren(); toastClear.hidden = true; $('#main').focus(); });
+
+/* ---------- theme ---------- */
+const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+let themeChoice = 'auto';
+function applyTheme() { document.documentElement.dataset.theme = themeChoice === 'auto' ? (darkMQ.matches ? 'dark' : 'light') : themeChoice; scheduleInspector(); }
+$('#theme').addEventListener('change', e => { themeChoice = e.target.value; applyTheme(); announce('Theme changed to ' + e.target.selectedOptions[0].text); });
+darkMQ.addEventListener('change', applyTheme);
+
+/* ---------- generic tabs (WAI-ARIA APG tabs, automatic activation) ---------- */
+function initTabs(list, onSelect) {
+  const tabs = $$('[role=tab]', list);
+  function select(tab, focus) {
+    tabs.forEach(t => {
+      const sel = t === tab;
+      t.setAttribute('aria-selected', String(sel));
+      t.tabIndex = sel ? 0 : -1;               // roving tabindex: only the active tab is a Tab stop
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !sel;
+    });
+    if (focus) tab.focus();
+    if (onSelect) onSelect(tab);
+  }
+  list.addEventListener('click', e => { const t = e.target.closest('[role=tab]'); if (t) select(t, false); });
+  list.addEventListener('keydown', e => {
+    const i = tabs.indexOf(document.activeElement); if (i < 0) return;
+    const k = e.key; let n = null;
+    if (k === 'ArrowRight') n = (i + 1) % tabs.length;
+    else if (k === 'ArrowLeft') n = (i - 1 + tabs.length) % tabs.length;
+    else if (k === 'Home') n = 0;
+    else if (k === 'End') n = tabs.length - 1;
+    if (n !== null) { e.preventDefault(); select(tabs[n], true); }
+  });
+}
+initTabs($('#mainTabs'), tab => {
+  if (tab.id === 'tab-1') scheduleInspector();
+  if (tab.id === 'tab-2') layoutM2();
+});
+initTabs($('#demoTabs'), scheduleInspector);
+
+/* ---------- skip-link demo ---------- */
+$('#skipDemoBtn').addEventListener('click', () => $('#topAnchor').focus());
+
+/* ---------- accordion ---------- */
+$$('.acc-btn').forEach(b => b.addEventListener('click', () => {
+  const open = b.getAttribute('aria-expanded') === 'true';
+  b.setAttribute('aria-expanded', String(!open));
+  document.getElementById(b.getAttribute('aria-controls')).hidden = open;   // native button gives Enter/Space for free
+}));
+
+/* ---------- modal dialog ---------- */
+const backdrop = $('#modalBackdrop'), modal = $('#modal'); let lastTrigger = null;
+const focusables = root => $$('a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])', root).filter(el => el.getClientRects().length);
+function openModal() {
+  lastTrigger = document.activeElement;       // WHY: remember the trigger so focus can return (SC 2.4.3)
+  backdrop.hidden = false;
+  $('#app').inert = true;                     // WHY: background cannot be focused or read while the dialog is open
+  $('#modalEmail').focus();                   // focus moves INTO the dialog
+}
+function closeModal() {
+  backdrop.hidden = true; $('#app').inert = false;
+  if (lastTrigger) lastTrigger.focus();       // focus returns to the opener
+}
+$('#modalOpen').addEventListener('click', openModal);
+$('#modalClose').addEventListener('click', closeModal);
+$('#modalConfirm').addEventListener('click', () => { closeModal(); toast('Thanks for subscribing (demo only, nothing was sent).'); });
+backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
+backdrop.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+  if (e.key === 'Tab') {                      // WHY: manual focus trap, wrap from last to first and back
+    const f = focusables(modal); if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
+
+/* ---------- menu button ---------- */
+const menuBtn = $('#menuBtn'), menu = $('#menu'); const menuItems = () => $$('[role=menuitem]', menu);
+function openMenu(last) { menu.hidden = false; menuBtn.setAttribute('aria-expanded', 'true'); const it = menuItems(); (last ? it[it.length - 1] : it[0]).focus(); scheduleInspector(); }
+function closeMenu(ret) { menu.hidden = true; menuBtn.setAttribute('aria-expanded', 'false'); if (ret) menuBtn.focus(); scheduleInspector(); }
+menuBtn.addEventListener('click', () => menu.hidden ? openMenu() : closeMenu(true));
+menuBtn.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); openMenu(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); openMenu(true); }
+});
+menu.addEventListener('keydown', e => {
+  const it = menuItems(), i = it.indexOf(document.activeElement);
+  switch (e.key) {
+    case 'ArrowDown': e.preventDefault(); it[(i + 1) % it.length].focus(); break;
+    case 'ArrowUp': e.preventDefault(); it[(i - 1 + it.length) % it.length].focus(); break;
+    case 'Home': e.preventDefault(); it[0].focus(); break;
+    case 'End': e.preventDefault(); it[it.length - 1].focus(); break;
+    case 'Escape': e.preventDefault(); closeMenu(true); break;
+    case 'Tab': closeMenu(false); break;       // WHY: Tab leaves the menu naturally; never trap here
+  }
+});
+menu.addEventListener('click', e => { const it = e.target.closest('[role=menuitem]'); if (it) { closeMenu(true); toast('Menu action chosen: ' + it.textContent.trim()); } });
+document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('.menu-wrap')) closeMenu(false); });
+
+/* ---------- demo form validation ---------- */
+const dForm = $('#demoForm'), eSum = $('#errSummary'), eList = $('#errList');
+const FIELDS = [
+  { el: $('#f-name'), err: $('#err-name'), label: 'Full name', test: v => v.trim() ? '' : 'Enter your full name.' },
+  { el: $('#f-email'), err: $('#err-email'), label: 'Email', test: v => !v.trim() ? 'Enter your email address.' : (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? '' : 'Enter an email like name@example.com.') },
+  { el: $('#f-terms'), err: $('#err-terms'), label: 'Terms', test: (v, el) => el.checked ? '' : 'You must accept the terms.' }
+];
+function checkField(f) {
+  const msg = f.test(f.el.value, f.el);
+  f.el.setAttribute('aria-invalid', String(!!msg));
+  f.err.replaceChildren();
+  if (msg) { const i = document.createElement('span'); i.setAttribute('aria-hidden', 'true'); i.textContent = '⚠ '; f.err.append(i, document.createTextNode('Error: ' + msg)); }
+  return msg;
+}
+FIELDS.forEach(f => {
+  f.el.addEventListener('blur', () => { if (f.el.value || f.el.getAttribute('aria-invalid') === 'true') checkField(f); });
+  f.el.addEventListener('input', () => { if (f.el.getAttribute('aria-invalid') === 'true') checkField(f); });
+  f.el.addEventListener('change', () => { if (f.el.getAttribute('aria-invalid') === 'true') checkField(f); });
+});
+dForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const bad = FIELDS.filter(f => checkField(f));
+  $('#formStatus').textContent = '';
+  if (bad.length) {
+    eList.replaceChildren();
+    bad.forEach(f => {
+      const li = document.createElement('li'), a = document.createElement('a');
+      a.href = '#' + f.el.id; a.textContent = f.label + ': ' + f.err.textContent.replace(/^⚠ /, '').replace(/^Error: /, '');
+      a.addEventListener('click', ev => { ev.preventDefault(); f.el.focus(); });  // WHY: links move focus to the field, not just scroll
+      li.append(a); eList.append(li);
+    });
+    $('#errTitle').textContent = bad.length === 1 ? 'There is 1 problem' : 'There are ' + bad.length + ' problems';
+    eSum.hidden = false;
+    eSum.focus();                              // WHY: focus the summary so the errors are read immediately (SC 3.3.1)
+  } else {
+    eSum.hidden = true;
+    announce('');
+    $('#formStatus').textContent = 'Form submitted successfully. Thank you, ' + $('#f-name').value.trim() + '.';
+  }
+});
+
+/* ---------- toast demo ---------- */
+let toastN = 0;
+$('#toastBtn').addEventListener('click', () => toast('This is polite status message number ' + (++toastN) + '. Focus did not move.'));
+
+/* ---------- sortable table ---------- */
+const SRT = [['1.1.1','Non-text Content','A'],['1.4.3','Contrast (Minimum)','AA'],['2.1.1','Keyboard','A'],['2.4.7','Focus Visible','AA'],['3.3.1','Error Identification','A'],['4.1.2','Name, Role, Value','A']];
+let srtSort = { col: -1, dir: 1 };
+function renderSrt() {
+  $('#srtBody').innerHTML = SRT.map(r => `<tr><th scope="row">${esc(r[0])}</th><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('');
+}
+const scCompare = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+$$('#srt th button').forEach(btn => btn.addEventListener('click', () => {
+  const col = +btn.dataset.col;
+  srtSort = { col, dir: srtSort.col === col ? -srtSort.dir : 1 };
+  SRT.sort((a, b) => (col === 0 ? scCompare(a[0], b[0]) : a[col].localeCompare(b[col])) * srtSort.dir);
+  $$('#srt th').forEach(th => th.removeAttribute('aria-sort'));
+  btn.closest('th').setAttribute('aria-sort', srtSort.dir === 1 ? 'ascending' : 'descending');
+  renderSrt();
+  announce('Table sorted by ' + btn.textContent + ', ' + (srtSort.dir === 1 ? 'ascending' : 'descending'));
+}));
+renderSrt();
+
+/* ---------- accessible name / role helpers for the log and inspector ---------- */
+function textOf(el) { const c = el.cloneNode(true); $$('[aria-hidden="true"]', c).forEach(n => n.remove()); return (c.textContent || '').replace(/\s+/g, ' ').trim(); }
+function accName(el) {
+  const lb = el.getAttribute('aria-labelledby');
+  if (lb) { const t = lb.split(/\s+/).map(id => document.getElementById(id)).filter(Boolean).map(textOf).join(' '); if (t) return t; }
+  const al = el.getAttribute('aria-label'); if (al) return al;
+  if (el.labels && el.labels.length) return [...el.labels].map(textOf).join(' ');
+  if (el.tagName === 'IMG') return el.getAttribute('alt') || '';
+  if (/^(BUTTON|A|SUMMARY|TH|TD|LI|H[1-6]|LEGEND|CAPTION)$/.test(el.tagName) || ['tab','menuitem','button','link','tabpanel'].includes(el.getAttribute('role'))) { const t = textOf(el); if (t) return t.slice(0, 80); }
+  return el.getAttribute('title') || el.getAttribute('placeholder') || '';
+}
+function roleOf(el) {
+  const r = el.getAttribute('role'); if (r) return r;
+  const t = el.tagName.toLowerCase();
+  if (t === 'a') return el.hasAttribute('href') ? 'link' : 'generic';
+  if (t === 'input') { const ty = el.type; return ({checkbox:'checkbox',radio:'radio',range:'slider',search:'searchbox',number:'spinbutton',button:'button',submit:'button',color:'(colour input)'})[ty] || 'textbox'; }
+  const map = { button:'button', select:'combobox', textarea:'textbox', table:'table', th:el.getAttribute('scope') === 'row' ? 'rowheader' : 'columnheader', td:'cell', summary:'button', main:'main', nav:'navigation', header:'banner', footer:'contentinfo', ul:'list', li:'listitem', progress:'progressbar', fieldset:'group', form:'form', section:'region' };
+  if (/^h[1-6]$/.test(t)) return 'heading';
+  return map[t] || 'generic';
+}
+const describe = el => `<code>${esc(el.tagName ? el.tagName.toLowerCase() : 'document')}</code> role=${esc(el.tagName ? roleOf(el) : '-')} name="${esc(el.tagName ? (accName(el) || '(none)') : '')}"`;
+
+/* ---------- keyboard event log + focus tracker ---------- */
+const logEl = $('#eventLog'); let logOn = true;
+function addLog(html) {
+  const d = document.createElement('div'); d.innerHTML = html;
+  logEl.prepend(d);
+  while (logEl.children.length > 60) logEl.lastElementChild.remove();
+}
+document.addEventListener('keydown', e => {
+  if (!logOn || logEl.contains(e.target)) return;      // WHY: do not log your own scrolling of the log
+  const mods = ['Ctrl','Alt','Shift','Meta'].filter(m => e[m.toLowerCase() + 'Key'] && e.key !== m);
+  addLog('Key <kbd>' + esc(mods.concat(e.key === ' ' ? 'Space' : e.key).join('+')) + '</kbd> on ' + describe(e.target));
+}, true);
+document.addEventListener('focusin', e => {
+  const t = e.target; if (!t.tagName) return;
+  $('#fi-tag').textContent = t.tagName.toLowerCase();
+  $('#fi-role').textContent = roleOf(t);
+  $('#fi-name').textContent = accName(t) || '(none)';
+  if (logOn && !logEl.contains(t)) addLog('Focus → ' + describe(t));
+});
+$('#logPause').addEventListener('click', e => { logOn = !logOn; e.currentTarget.setAttribute('aria-pressed', String(!logOn)); });
+$('#logClear').addEventListener('click', () => logEl.replaceChildren());
+
+/* ---------- ARIA inspector ---------- */
+const gal = $('#m1Gallery'), layer = $('#inspLayer'), inspOut = $('#inspOut'); let inspOn = false, inspT;
+const INSP_SEL = '[role],[aria-expanded],[aria-selected],[aria-invalid],[aria-required],[aria-sort],[aria-live],[aria-haspopup],[aria-modal],[aria-pressed],button,input,select,textarea,table,th,summary';
+function attrsOf(el) { return [...el.attributes].filter(a => a.name === 'role' || a.name.startsWith('aria-') || a.name === 'tabindex').map(a => a.name + '=' + a.value); }
+function renderInspector() {
+  layer.replaceChildren(); if (!inspOn) return;
+  const base = $('.insp-wrap').getBoundingClientRect(); const items = [];
+  $$(INSP_SEL, gal).forEach(el => {
+    if (!el.getClientRects().length) return;
+    const r = el.getBoundingClientRect(), txt = `role=${roleOf(el)}${attrsOf(el).length ? ' · ' + attrsOf(el).join(' ') : ''} · name="${accName(el) || '(none)'}"`;
+    const box = document.createElement('div'); box.className = 'insp-box';
+    Object.assign(box.style, { left: r.left - base.left + 'px', top: r.top - base.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    const tag = document.createElement('div'); tag.className = 'insp-tag'; tag.textContent = txt;
+    Object.assign(tag.style, { left: r.left - base.left + 'px', top: Math.max(r.top - base.top, 14) + 'px' });
+    layer.append(box, tag); items.push(`<li><code>${esc(el.tagName.toLowerCase())}</code>: ${esc(txt)}</li>`);
+  });
+  inspOut.innerHTML = items.join('') || '<li>Nothing to inspect.</li>';
+}
+function scheduleInspector() { if (!inspOn) return; clearTimeout(inspT); inspT = setTimeout(renderInspector, 120); }
+$('#inspToggle').addEventListener('change', e => { inspOn = e.target.checked; if (!inspOn) { layer.replaceChildren(); inspOut.innerHTML = '<li>Turn on the ARIA Inspector to fill this list.</li>'; } else renderInspector(); announce('ARIA Inspector ' + (inspOn ? 'on' : 'off')); });
+new MutationObserver(scheduleInspector).observe(gal, { attributes: true, childList: true, subtree: true });
+addEventListener('resize', () => { scheduleInspector(); layoutM2(); });
+
+/* =========================================================
+   MODULE 2: contrast maths (WCAG 2.x definitions)
+   ========================================================= */
+const hexRe = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
+function parseHex(s) { const m = hexRe.exec(String(s).trim()); if (!m) return null; let h = m[1]; if (h.length === 3) h = [...h].map(c => c + c).join(''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
+const toHex = rgb => '#' + rgb.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+/* WHY 0.03928: the threshold printed in WCAG 2.x. (sRGB itself uses 0.04045; the difference never changes a result at 8-bit.) */
+const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const lum = rgb => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+function ratio(a, b) { const l1 = lum(a), l2 = lum(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); }
+const fmtRatio = r => (Math.floor(r * 100) / 100).toFixed(2);   // truncate: never let 4.499 display as a pass
+function rgb2hsl([r, g, b]) { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2; let h = 0, s = 0; if (d) { s = d / (1 - Math.abs(2 * l - 1)); if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; } return [h, s, l]; }
+function hsl2rgb(h, s, l) { const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2; let r = 0, g = 0, b = 0; if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; } else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; } else if (h < 300) { r = x; b = c; } else { r = c; b = x; } return [r, g, b].map(v => Math.round((v + m) * 255)); }
+/* Nearest passing colour: walk lightness outward from the current value (keeping hue and saturation) until the target is met. */
+function suggest(fg, bg, target, which) {
+  const moving = which === 'fg' ? fg : bg;
+  const test = c => which === 'fg' ? ratio(c, bg) : ratio(fg, c);
+  if (test(moving) >= target) return { rgb: moving, same: true };
+  const [h, s, l] = rgb2hsl(moving);
+  for (let d = 0.001; d <= 1; d += 0.001) for (const dir of [1, -1]) {
+    const nl = l + dir * d; if (nl < 0 || nl > 1) continue;
+    const c = hsl2rgb(h, s, nl); if (test(c) >= target) return { rgb: c, delta: d };
+  }
+  return null;
+}
+
+/* ---------- contrast checker UI ---------- */
+const fgP = $('#fgPick'), fgH = $('#fgHex'), bgP = $('#bgPick'), bgH = $('#bgHex');
+const REQS = [['Normal text, AA','1.4.3',4.5],['Large text, AA','1.4.3',3],['UI components and graphical objects, AA','1.4.11',3],['Normal text, AAA','1.4.6',7],['Large text, AAA','1.4.6',4.5]];
+let cur = { fg: parseHex('#595959'), bg: parseHex('#ffffff') }, sumT;
+function setErr(which, msg) { const inp = which === 'fg' ? fgH : bgH; inp.setAttribute('aria-invalid', String(!!msg)); $('#' + which + 'Err').textContent = msg ? '⚠ Error: ' + msg : ''; }
+function onHex(which) {
+  const inp = which === 'fg' ? fgH : bgH, rgb = parseHex(inp.value);
+  if (!rgb) { setErr(which, 'Enter a 3 or 6 digit hex colour such as #1a2b3c.'); return; }
+  setErr(which, ''); cur[which] = rgb; (which === 'fg' ? fgP : bgP).value = toHex(rgb); updateContrast();
+}
+function onPick(which) { const p = which === 'fg' ? fgP : bgP; (which === 'fg' ? fgH : bgH).value = p.value; setErr(which, ''); cur[which] = parseHex(p.value); updateContrast(); }
+fgH.addEventListener('input', () => onHex('fg')); bgH.addEventListener('input', () => onHex('bg'));
+fgP.addEventListener('input', () => onPick('fg')); bgP.addEventListener('input', () => onPick('bg'));
+$('#swapBtn').addEventListener('click', () => { const a = fgH.value; fgH.value = bgH.value; bgH.value = a; onHex('fg'); onHex('bg'); });
+$('#pvSize').addEventListener('input', updateContrast); $('#pvBold').addEventListener('change', updateContrast);
+function updateContrast() {
+  const { fg, bg } = cur, r = ratio(fg, bg);
+  $('#ratioOut').textContent = fmtRatio(r) + ':1';
+  $('#resBody').innerHTML = REQS.map(([n, sc, min]) => { const ok = r >= min;
+    return `<tr><th scope="row">${esc(n)}</th><td>SC ${sc}</td><td>${min}:1</td><td><span class="badge ${ok ? 'res-pass' : 'res-fail'}"><span aria-hidden="true">${ok ? '✓' : '✗'}</span> ${ok ? 'Pass' : 'Fail'}</span></td></tr>`; }).join('');
+  const pv = $('#preview'), size = parseFloat($('#pvSize').value) || 16, bold = $('#pvBold').checked;
+  pv.style.background = toHex(bg); pv.style.color = toHex(fg);
+  $('#pvText').style.fontSize = size + 'px'; $('#pvText').style.fontWeight = bold ? '700' : '400';
+  const large = size >= 24 || (bold && size >= 18.66), need = large ? 3 : 4.5;
+  $('#pvClass').innerHTML = `This preview counts as <strong>${large ? 'large' : 'normal'} text</strong> (large = at least 24px, or at least 18.66px bold), so AA needs ${need}:1. <span class="badge ${r >= need ? 'res-pass' : 'res-fail'}"><span aria-hidden="true">${r >= need ? '✓' : '✗'}</span> ${r >= need ? 'Pass' : 'Fail'}</span>`;
+  clearTimeout(sumT);
+  sumT = setTimeout(() => { $('#srSummary').textContent = `Contrast ratio ${fmtRatio(r)} to 1. Normal text AA ${r >= 4.5 ? 'passes' : 'fails'}. Large text AA ${r >= 3 ? 'passes' : 'fails'}. Normal text AAA ${r >= 7 ? 'passes' : 'fails'}.`; }, 800);
+}
+let pendingSug = null;
+$('#sugBtn').addEventListener('click', () => {
+  const t = $('#sugTarget').value, target = t === '4.5L' ? 4.5 : parseFloat(t), which = $('#sugWhich').value;
+  const s = suggest(cur.fg, cur.bg, target, which), out = $('#sugOut'), ap = $('#sugApply');
+  pendingSug = null; ap.hidden = true;
+  if (!s) { out.textContent = 'No colour with this hue can reach ' + target + ':1 by changing only the ' + (which === 'fg' ? 'text' : 'background') + '. Try adjusting the other colour.'; return; }
+  if (s.same) { out.textContent = 'Already passes ' + target + ':1. No change needed.'; return; }
+  const rr = which === 'fg' ? ratio(s.rgb, cur.bg) : ratio(cur.fg, s.rgb);
+  pendingSug = { which, rgb: s.rgb };
+  out.innerHTML = `Suggested ${which === 'fg' ? 'text' : 'background'} colour <span class="sw" style="background:${toHex(s.rgb)}"></span> <code>${toHex(s.rgb)}</code> gives ${fmtRatio(rr)}:1 (needs ${target}:1). Lightness changed by about ${(s.delta * 100).toFixed(1)} points.`;
+  ap.hidden = false;
+});
+$('#sugApply').addEventListener('click', () => { if (!pendingSug) return; (pendingSug.which === 'fg' ? fgH : bgH).value = toHex(pendingSug.rgb); onHex(pendingSug.which); $('#sugApply').hidden = true; announce('Suggested colour applied'); });
+updateContrast();
+
+/* =========================================================
+   SAMPLE UI (Before = deliberately broken, After = fixed)
+   ========================================================= */
+const svgUri = (inner, bg, w = 96, h = 64) => 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="${bg}"/>${inner}</svg>`);
+const IMG = {
+  tent: svgUri('<path d="M12 52 L48 12 L84 52 Z" fill="#2e7d32"/><path d="M48 12 L58 52 L38 52 Z" fill="#1b5e20"/>', '#cfe8ff'),
+  bag: svgUri('<rect x="28" y="12" width="40" height="44" rx="8" fill="#c2410c"/><rect x="36" y="24" width="24" height="12" fill="#7c2d12"/>', '#fff3e0'),
+  boot: svgUri('<path d="M30 14h18v22l22 8v10H30z" fill="#5d4037"/>', '#e8eaf6'),
+  swoosh: svgUri('<path d="M0 6 Q75 0 150 6 T300 6" stroke="#0b3a75" fill="none" stroke-width="2"/>', '#f1f5f9', 300, 12)
+};
+const TICKS = ['Flash sale: 20% off tents', 'New: ultralight packs in stock', 'Free shipping on orders over $100', 'Boots restock tomorrow'];
+const SEARCH_ICON = c => `<svg width="14" height="14" viewBox="0 0 16 16"${c === 'a' ? ' aria-hidden="true" focusable="false"' : ''}><circle cx="7" cy="7" r="5" fill="none" stroke="#fff" stroke-width="2"/><path d="M11 11l4 4" stroke="#fff" stroke-width="2"/></svg>`;
+
+function beforeHTML() { return `
+<div class="sx before" data-variant="before">
+  <div class="sx-meta" data-issue="i11 i21">Simulated page source: <code>&lt;html&gt;</code> <code>&lt;title&gt;Page 1&lt;/title&gt;</code></div>
+  <div class="sx-page" data-issue="i22">
+    <div class="sx-header" data-issue="i20">
+      <span class="sx-brand">Sunrise Outfitters</span>
+      <div class="sx-nav"><a href="#">Home</a><a href="#" data-hz-tab="3" data-issue="i10">Shop</a><a href="#" data-hz-tab="2">Contact</a></div>
+      <input class="sx-in" type="text" data-issue="i06">
+      <button data-sx="noop" data-issue="i16">${SEARCH_ICON('b')}</button>
+    </div>
+    <div class="sx-ticker" data-issue="i15"><span class="tk">${TICKS[0]}</span></div>
+    <div class="sx-hero">
+      <h4>Gear up for sunrise hikes</h4>
+      <p class="sx-lowc" data-issue="i01">Lightweight tents, packs and boots for every trail.</p>
+      <img data-issue="i04" src="${IMG.swoosh}" alt="swoosh-divider-final-v2.png" width="300" height="12">
+      <p>Read our tent buying advice: <a href="#" data-issue="i12">click here</a></p>
+    </div>
+    <div class="sx-cards">
+      <div class="sx-card"><img data-issue="i03" src="${IMG.tent}" width="96" height="64"><h6>Trail tent</h6><div class="sx-desc" data-issue="i18 i23">Two-person, three-season tent that packs down small and weighs just 1.8 kg with poles and stakes included.</div><div class="sx-btn" data-sx="cart" data-name="Trail tent" data-issue="i05">Add to cart</div></div>
+      <div class="sx-card"><img src="${IMG.bag}" width="96" height="64"><h6>Day pack</h6><div class="sx-desc">Comfortable 25 litre pack with a padded back panel, rain cover and two bottle pockets.</div><div class="sx-btn" data-sx="cart" data-name="Day pack">Add to cart</div></div>
+      <div class="sx-card"><img src="${IMG.boot}" width="96" height="64"><h6>Hiking boots</h6><div class="sx-desc">Waterproof leather boots with grippy soles for wet rock, mud and loose gravel.</div><div class="sx-btn" data-sx="cart" data-name="Hiking boots">Add to cart</div></div>
+    </div>
+    <div class="sx-trap" data-sx-trap data-issue="i14"><p>Newsletter pop-up. <em>Teaching aid: with hazards on, press Esc to escape this trap.</em></p><input class="sx-in" placeholder="Email for deals"><button data-sx="noop">Subscribe</button> <button data-sx="noop">No thanks</button></div>
+    <div class="sx-section">
+      <h6 data-issue="i13">Contact us</h6>
+      <input class="sx-in" data-f="name" data-issue="i02 i07" placeholder="Your name">
+      <input class="sx-in" data-f="email" data-issue="i02 i08" placeholder="Email address">
+      <button data-sx="send" data-hz-tab="1" data-issue="i10">Send</button>
+      <h6>Compare gear</h6>
+      <table data-issue="i17"><tr><td>Item</td><td>Weight</td><td>Price</td></tr><tr><td>Trail tent</td><td>1.8 kg</td><td>$249</td></tr><tr><td>Day pack</td><td>1.2 kg</td><td>$129</td></tr><tr><td>Hiking boots</td><td>0.9 kg</td><td>$159</td></tr></table>
+    </div>
+    <div class="sx-status" data-issue="i19"></div>
+  </div>
+</div>`; }
+
+function afterHTML(p) { return `
+<div class="sx after" data-variant="after">
+  <div class="sx-meta" data-fix="i11 i21">Simulated page source: <code>&lt;html lang="en"&gt;</code> <code>&lt;title&gt;Tents, packs and boots – Sunrise Outfitters&lt;/title&gt;</code></div>
+  <a class="sx-skip" href="#" data-sx="skip" data-fix="i20">Skip to main content</a>
+  <header class="sx-header">
+    <span class="sx-brand">Sunrise Outfitters</span>
+    <nav aria-label="Main"><ul class="sx-nav"><li><a href="#">Home</a></li><li><a href="#">Shop</a></li><li><a href="#">Contact</a></li></ul></nav>
+    <div><label class="sr-only" for="${p}q" data-fix="i06">Search products</label><input class="sx-in" id="${p}q" type="search" autocomplete="off">
+    <button type="button" data-sx="noop" aria-label="Search" data-fix="i16">${SEARCH_ICON('a')}</button></div>
+  </header>
+  <!-- In a real page this wrapper is <main>. We use a div here because the lab page already has its own <main>. -->
+  <div data-sx-main tabindex="-1">
+    <div class="sx-ticker"><span class="tk">${TICKS[0]}</span><button type="button" data-sx="tick-toggle" data-fix="i15">Pause updates</button></div>
+    <section class="sx-hero">
+      <h4>Gear up for sunrise hikes</h4>
+      <p>Lightweight tents, packs and boots for every trail.</p>
+      <img data-fix="i04" src="${IMG.swoosh}" alt="" width="300" height="12">
+      <p>Read our <a href="#" data-fix="i12">tent buying guide</a>.</p>
+    </section>
+    <ul class="sx-cards">
+      <li class="sx-card"><img data-fix="i03" src="${IMG.tent}" alt="Green two-person trail tent with an open door" width="96" height="64"><h5>Trail tent</h5><p class="sx-desc" data-fix="i18 i23">Two-person, three-season tent that packs down small and weighs just 1.8 kg with poles and stakes included.</p><button type="button" data-sx="cart" data-name="Trail tent" data-fix="i05">Add to cart</button></li>
+      <li class="sx-card"><img src="${IMG.bag}" alt="Orange 25 litre day pack" width="96" height="64"><h5>Day pack</h5><p class="sx-desc">Comfortable 25 litre pack with a padded back panel, rain cover and two bottle pockets.</p><button type="button" data-sx="cart" data-name="Day pack">Add to cart</button></li>
+      <li class="sx-card"><img src="${IMG.boot}" alt="Brown leather hiking boot" width="96" height="64"><h5>Hiking boots</h5><p class="sx-desc">Waterproof leather boots with grippy soles for wet rock, mud and loose gravel.</p><button type="button" data-sx="cart" data-name="Hiking boots">Add to cart</button></li>
+    </ul>
+    <div class="sx-section">
+      <p class="sx-trap-after"><strong>Newsletter</strong> (a normal inline form, no trap)</p>
+      <div class="sx-field" data-fix="i14"><label for="${p}nl">Email for deals</label><input class="sx-in" id="${p}nl" type="email" autocomplete="email"></div>
+      <button type="button" data-sx="noop">Subscribe</button>
+      <h5 data-fix="i13">Contact us</h5>
+      <form data-sx-form novalidate>
+        <div class="sx-field"><label for="${p}n">Name (required)</label><input class="sx-in" id="${p}n" data-f="name" data-fix="i02 i07" autocomplete="name" aria-required="true" aria-describedby="${p}ne"><span class="sx-err" id="${p}ne" data-err="name"></span></div>
+        <div class="sx-field"><label for="${p}e">Email (required)</label><input class="sx-in" id="${p}e" type="email" data-f="email" data-fix="i02 i08" autocomplete="email" aria-required="true" aria-describedby="${p}ee"><span class="sx-err" id="${p}ee" data-err="email"></span></div>
+        <button type="submit" data-sx="send" data-fix="i10">Send message</button>
+      </form>
+      <h5>Compare gear</h5>
+      <table data-fix="i17"><caption>Weight and price of featured gear</caption><thead><tr><th scope="col">Item</th><th scope="col">Weight</th><th scope="col">Price</th></tr></thead>
+        <tbody><tr><th scope="row">Trail tent</th><td>1.8 kg</td><td>$249</td></tr><tr><th scope="row">Day pack</th><td>1.2 kg</td><td>$129</td></tr><tr><th scope="row">Hiking boots</th><td>0.9 kg</td><td>$159</td></tr></tbody></table>
+    </div>
+    <div class="sx-status" role="status" data-fix="i19"></div>
+  </div>
+</div>`; }
+const sampleHTML = (v, p) => v === 'before' ? beforeHTML() : afterHTML(p);
+
+/* ---------- sample behaviour: one delegated handler for every copy of the sample ---------- */
+function sxStatus(root, msg) { const s = $('.sx-status', root); if (!s) return; s.textContent = ''; setTimeout(() => { s.textContent = msg; }, 50); }
+function sxSend(root) {
+  const after = root.classList.contains('after'), name = $('[data-f=name]', root), email = $('[data-f=email]', root);
+  const nOk = name.value.trim() !== '', eOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim());
+  if (!after) {                                  // Before: red border only, no text, nothing announced
+    name.classList.toggle('bad', !nOk); email.classList.toggle('bad', !eOk);
+    sxStatus(root, nOk && eOk ? 'Message sent.' : ''); return;
+  }
+  const bad = [];
+  [[name, nOk, 'Enter your name.'], [email, eOk, 'Enter an email like name@example.com.']].forEach(([inp, ok, msg]) => {
+    inp.setAttribute('aria-invalid', String(!ok));
+    $('[data-err=' + inp.dataset.f + ']', root).textContent = ok ? '' : 'Error: ' + msg;
+    if (!ok) bad.push(inp);
+  });
+  if (bad.length) { sxStatus(root, bad.length + (bad.length > 1 ? ' errors' : ' error') + ' in the form.'); bad[0].focus(); }
+  else sxStatus(root, 'Thank you. Your message was sent.');
+}
+document.addEventListener('submit', e => { const f = e.target.closest && e.target.closest('form[data-sx-form]'); if (f) { e.preventDefault(); sxSend(f.closest('.sx')); } });
+document.addEventListener('click', e => {
+  const link = e.target.closest('.sx a[href="#"]');
+  if (link) { e.preventDefault(); if (link.dataset.sx === 'skip') { const m = $('[data-sx-main]', link.closest('.sx')); if (m) m.focus(); } return; }
+  const t = e.target.closest('[data-sx]'); if (!t || t.tagName === 'A') return;
+  const root = t.closest('.sx'); if (!root) return;
+  switch (t.dataset.sx) {
+    case 'cart': sxStatus(root, (t.dataset.name || 'Item') + ' added to cart.'); break;
+    case 'noop': sxStatus(root, 'This control is not wired up in the demo.'); break;
+    case 'send': if (!t.closest('form')) sxSend(root); break;
+    case 'tick-toggle': { const paused = root.dataset.paused === '1'; root.dataset.paused = paused ? '0' : '1'; t.textContent = paused ? 'Pause updates' : 'Resume updates'; sxStatus(root, paused ? 'Updates resumed.' : 'Updates paused.'); break; }
+  }
+});
+
+/* ---------- Module 3: panes, views, hazards ---------- */
+const m3 = $('#m3Stage');
+const paneHTML = (v, label) => `<div class="pane" data-pane="${v}"><p class="pane-title"><strong>${label}</strong></p><div class="stage-scroll" role="region" tabindex="0" aria-label="${label} sample UI (scrollable)">${sampleHTML(v, 'm3' + v[0] + '-')}</div></div>`;
+m3.innerHTML = paneHTML('before', 'Before (deliberately inaccessible)') + paneHTML('after', 'After (fixed)');
+function setView(v) {
+  $$('.pane', m3).forEach(p => { p.hidden = (v === 'before' && p.dataset.pane !== 'before') || (v === 'after' && p.dataset.pane !== 'after'); });
+  m3.classList.toggle('side', v === 'side' || v === 'diff'); m3.classList.toggle('diff', v === 'diff');
+  $('#diffLegend').hidden = v !== 'diff';
+}
+$$('input[name=view]').forEach(r => r.addEventListener('change', () => { setView(r.value); announce('View: ' + r.parentElement.textContent.trim()); }));
+setView('side');
+
+let hazardsOn = false, tickTimer = null, tickI = 0;
+function runTicker(on) {
+  clearInterval(tickTimer); if (!on) return;
+  tickTimer = setInterval(() => { tickI = (tickI + 1) % TICKS.length; $$('.sx .tk').forEach(s => { if (s.closest('.sx').dataset.paused !== '1') s.textContent = TICKS[tickI]; }); }, 3000);
+}
+function setHazards(on) {
+  hazardsOn = on;
+  $$('[data-hz-tab]', m3).forEach(el => on ? el.setAttribute('tabindex', el.dataset.hzTab) : el.removeAttribute('tabindex'));   // positive tabindex = i10
+  $$('[data-sx-trap]', m3).forEach(t => delete t.dataset.released);
+  runTicker(on);
+  if (on && reduceMotion()) $$('.sx.after', m3).forEach(r => { r.dataset.paused = '1'; const b = $('[data-sx=tick-toggle]', r); if (b) b.textContent = 'Resume updates'; });
+  announce(on ? 'Intentional hazards enabled: positive tabindex, keyboard trap and auto-updating ticker are active.' : 'Intentional hazards disabled.');
+}
+$('#hazards').addEventListener('change', e => setHazards(e.target.checked));
+/* The intentional keyboard trap (SC 2.1.2 failure). Escape is the documented way out. */
+document.addEventListener('keydown', e => {
+  if (!hazardsOn) return;
+  const trap = e.target.closest && e.target.closest('.sx.before [data-sx-trap]'); if (!trap || trap.dataset.released) return;
+  if (e.key === 'Escape') { trap.dataset.released = '1'; announce('Keyboard trap released.'); return; }
+  if (e.key === 'Tab') { e.preventDefault(); const f = $$('input,button', trap), i = f.indexOf(document.activeElement); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); }
+}, true);
+
+/* ---------- issue data (SC numbers and names are WCAG 2.1; levels A or AA) ---------- */
+const ISSUES = [
+ {id:'i01',t:'Low-contrast body text',sc:'1.4.3',n:'Contrast (Minimum)',l:'AA',u:'People with low vision or colour-vision deficiency, and anyone in bright light.',d:'Use the Page Scanner in Module 2, or a contrast checker: #b0b0b0 on white is about 2.2:1.',f:'Use at least 4.5:1 for normal text (3:1 for large text).',b:'<p style="color:#b0b0b0">Lightweight tents…</p>',a:'<p style="color:#3f4650">Lightweight tents…</p>'},
+ {id:'i02',t:'Low-contrast input borders',sc:'1.4.11',n:'Non-text Contrast',l:'AA',u:'Low-vision users who cannot see where to type.',d:'Measure the border against the page: #d9d9d9 on white is about 1.4:1. The Page Scanner reports it.',f:'Give the visual boundary of form controls at least 3:1, for example #6b7280.',b:'input { border: 1px solid #d9d9d9 }',a:'input { border: 2px solid #6b7280 }'},
+ {id:'i03',t:'Informative image has no alt text',sc:'1.1.1',n:'Non-text Content',l:'A',u:'Screen reader users, and anyone with images blocked.',d:'Inspect <img> elements; axe reports "image-alt". A screen reader may read the file name instead.',f:'Add alt text that conveys the image\'s purpose.',b:'<img src="tent.png">',a:'<img src="tent.png" alt="Green two-person trail tent">'},
+ {id:'i04',t:'Decorative image not hidden from assistive technology',sc:'1.1.1',n:'Non-text Content',l:'A',u:'Screen reader users hear meaningless file names.',d:'Look for alt text like "swoosh-divider.png" on pure decoration.',f:'Use an empty alt (or a CSS background) so it is ignored.',b:'<img src="swoosh.png" alt="swoosh-divider-final-v2.png">',a:'<img src="swoosh.png" alt="">'},
+ {id:'i05',t:'Clickable <div> with no keyboard support or role',sc:'2.1.1',n:'Keyboard',l:'A',u:'Keyboard-only users, switch users and screen reader users (also fails 4.1.2).',d:'Try to Tab to "Add to cart". A <div> with only a click handler is skipped.',f:'Use a real <button>, which is focusable, has a role and responds to Enter and Space.',b:'<div class="btn" onclick="add()">Add to cart</div>',a:'<button type="button" onclick="add()">Add to cart</button>'},
+ {id:'i06',t:'Input with no label',sc:'1.3.1',n:'Info and Relationships',l:'A',u:'Screen reader and speech-input users.',d:'Focus the header search box with a screen reader: it is announced only as "edit text".',f:'Associate a <label for>. A visually hidden label is fine when the design shows an icon button.',b:'<input type="text">',a:'<label class="sr-only" for="q">Search products</label>\n<input id="q" type="search">'},
+ {id:'i07',t:'Placeholder used as the only label',sc:'3.3.2',n:'Labels or Instructions',l:'A',u:'People with cognitive disabilities, and anyone who has started typing and forgotten the prompt.',d:'Type in the field: the "label" vanishes. Placeholder text is also usually low contrast.',f:'Use a persistent visible <label>; keep placeholders for examples only.',b:'<input placeholder="Your name">',a:'<label for="n">Name (required)</label>\n<input id="n" autocomplete="name">'},
+ {id:'i08',t:'Error indicated by colour alone',sc:'1.4.1',n:'Use of Color',l:'A',u:'Colour-blind users and screen reader users (see also 3.3.1).',d:'Submit the empty form and view it with a colour-blindness filter: the red border is the only signal.',f:'Add error text and an icon, set aria-invalid, and link the message with aria-describedby.',b:'input.bad { border-color: red }',a:'<input aria-invalid="true" aria-describedby="e">\n<span id="e">Error: Enter an email address.</span>'},
+ {id:'i09',t:'No visible focus indicator',sc:'2.4.7',n:'Focus Visible',l:'AA',u:'Sighted keyboard users.',d:'Tab through the Before page: you cannot tell where focus is.',f:'Remove "outline: none" or replace it with a strong custom indicator.',b:':focus { outline: none }',a:':focus-visible { outline: 3px solid #0b4fa8; outline-offset: 2px }'},
+ {id:'i10',t:'Positive tabindex values and illogical focus order',sc:'2.4.3',n:'Focus Order',l:'A',u:'Keyboard and screen reader users.',d:'Enable hazards and Tab: "Send" is reached before the nav links. Search for tabindex values above 0.',f:'Use only tabindex 0 or -1 and put elements in the DOM in reading order.',b:'<button tabindex="1">Send</button>',a:'<button type="submit">Send message</button>'},
+ {id:'i11',t:'Page language not declared',sc:'3.1.1',n:'Language of Page',l:'A',u:'Screen reader users (wrong pronunciation) and translation tools.',d:'View source: <html> has no lang attribute.',f:'Set lang on the root element.',b:'<html>',a:'<html lang="en">'},
+ {id:'i12',t:'Non-descriptive link text ("click here")',sc:'2.4.4',n:'Link Purpose (In Context)',l:'A',u:'Screen reader users who list links out of context.',d:'Open the links list in a screen reader: many identical "click here" entries.',f:'Make the link text describe the destination.',b:'<a href="/guide">click here</a>',a:'<a href="/guide">tent buying guide</a>'},
+ {id:'i13',t:'Skipped heading levels',sc:'1.3.1',n:'Info and Relationships',l:'A',u:'Screen reader users navigating by headings.',d:'Open the headings list: the outline jumps from h4 to h6.',f:'Nest headings without skipping levels; choose by structure, not size.',b:'<h4>Welcome</h4> … <h6>Trail tent</h6>',a:'<h4>Welcome</h4> … <h5>Trail tent</h5>'},
+ {id:'i14',t:'Keyboard trap',sc:'2.1.2',n:'No Keyboard Trap',l:'A',u:'Keyboard-only users (can be stuck permanently).',d:'Enable hazards, Tab into the newsletter box and try to leave (Esc is the teaching escape hatch).',f:'Never intercept Tab. Use a real modal pattern only with a documented Esc and focus return.',b:'el.addEventListener("keydown", e => { if (e.key==="Tab") e.preventDefault() })',a:'// no handler: let Tab move on naturally'},
+ {id:'i15',t:'Auto-updating content with no pause control',sc:'2.2.2',n:'Pause, Stop, Hide',l:'A',u:'People with attention or reading difficulties, screen magnifier users.',d:'Enable hazards and watch the ticker change every 3 seconds with no way to stop it.',f:'Provide a pause/stop control (and respect prefers-reduced-motion).',b:'setInterval(rotate, 3000)',a:'<button>Pause updates</button>  // toggles the interval'},
+ {id:'i16',t:'Icon-only button with no accessible name',sc:'4.1.2',n:'Name, Role, Value',l:'A',u:'Screen reader and voice-control users.',d:'Focus the magnifier icon: announced only as "button".',f:'Add aria-label (or visually hidden text) and hide the decorative SVG.',b:'<button><svg>…</svg></button>',a:'<button aria-label="Search"><svg aria-hidden="true" focusable="false">…</svg></button>'},
+ {id:'i17',t:'Data table without headers',sc:'1.3.1',n:'Info and Relationships',l:'A',u:'Screen reader users, who hear cells without their column or row context.',d:'Navigate the table with a screen reader: no header information is read.',f:'Use <th scope>, a <caption>, and <thead>/<tbody>.',b:'<tr><td>Item</td><td>Weight</td></tr>',a:'<caption>Gear</caption>\n<tr><th scope="col">Item</th><th scope="col">Weight</th></tr>'},
+ {id:'i18',t:'Fixed pixel sizes break at 200% text zoom',sc:'1.4.4',n:'Resize Text',l:'AA',u:'Low-vision users who enlarge text.',d:'Zoom to 200% in Module 2 or the browser: descriptions are clipped by their fixed height.',f:'Use relative units and let containers grow (min-height, not height).',b:'.desc { font-size: 11px; height: 36px; overflow: hidden }',a:'.desc { font-size: 1rem }'},
+ {id:'i19',t:'Status messages not announced',sc:'4.1.3',n:'Status Messages',l:'AA',u:'Screen reader users, who never hear "Added to cart" or errors.',d:'Add to cart with a screen reader running: silence. Look for status text in elements without role="status".',f:'Put messages in a live region that exists before the update.',b:'<div class="status"></div>',a:'<div class="status" role="status"></div>'},
+ {id:'i20',t:'No skip link to bypass repeated blocks',sc:'2.4.1',n:'Bypass Blocks',l:'A',u:'Keyboard users must tab through the whole header every page.',d:'Press Tab on load: the first stop is the navigation, not a skip link.',f:'Add a "Skip to main content" link as the first focusable element, and use landmarks.',b:'<div class="header">…</div>',a:'<a href="#main">Skip to main content</a>\n<header>…</header><main id="main" tabindex="-1">'},
+ {id:'i21',t:'Non-descriptive page title',sc:'2.4.2',n:'Page Titled',l:'A',u:'Screen reader users and anyone with many tabs open.',d:'View source: <title>Page 1</title>.',f:'Describe the page topic and site.',b:'<title>Page 1</title>',a:'<title>Tents, packs and boots – Sunrise Outfitters</title>'},
+ {id:'i22',t:'Fixed-width layout does not reflow at 320 CSS px',sc:'1.4.10',n:'Reflow',l:'AA',u:'Low-vision users zooming to 400%, and small-screen users.',d:'Use the 320px reflow test in Module 2: horizontal scrolling is required.',f:'Use fluid layouts, flexible grids and container or media queries.',b:'.page { width: 600px }',a:'.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)) }'},
+ {id:'i23',t:'Content clipped when text spacing is increased',sc:'1.4.12',n:'Text Spacing',l:'AA',u:'People with dyslexia or low vision who override spacing.',d:'Turn on the text-spacing test in Module 2: the fixed-height description loses text.',f:'Avoid fixed heights on text containers and overflow: hidden.',b:'.desc { height: 36px; overflow: hidden }',a:'.desc { /* height grows with content */ }'}
+];
+const found = new Set(), fixed = new Set();
+const list = $('#issueList');
+list.innerHTML = ISSUES.map((i, n) => `
+<section class="card" aria-labelledby="ih-${i.id}">
+  <h4 id="ih-${i.id}">${n + 1}. ${esc(i.t)}</h4>
+  <dl class="kv">
+    <dt>WCAG</dt><dd>${esc(i.sc)} ${esc(i.n)}, Level ${esc(i.l)}</dd>
+    <dt>Affected users</dt><dd>${esc(i.u)}</dd>
+  </dl>
+  <div class="row">
+    <label class="choice"><input type="checkbox" data-found="${i.id}"> I found this</label>
+    <label class="choice"><input type="checkbox" data-fixed="${i.id}"> I fixed this</label>
+    <button type="button" class="secondary" data-jump="${i.id}">Show in sample</button>
+  </div>
+  <details><summary>How to detect, how to fix, and code</summary>
+    <dl class="kv"><dt>How to detect</dt><dd>${esc(i.d)}</dd><dt>How to fix</dt><dd>${esc(i.f)}</dd></dl>
+    <div class="pair"><div><h5>Before</h5><pre><code>${esc(i.b)}</code></pre></div><div><h5>After</h5><pre><code>${esc(i.a)}</code></pre></div></div>
+  </details>
+</section>`).join('');
+function updateProgress() {
+  $('#prog').max = ISSUES.length; $('#prog').value = found.size;
+  $('#progText').textContent = `Found ${found.size} of ${ISSUES.length} issues. Marked fixed: ${fixed.size} of ${ISSUES.length}.`;
+}
+list.addEventListener('change', e => {
+  const f = e.target.dataset.found, x = e.target.dataset.fixed;
+  if (f) e.target.checked ? found.add(f) : found.delete(f);
+  if (x) e.target.checked ? fixed.add(x) : fixed.delete(x);
+  updateProgress();
+});
+list.addEventListener('click', e => {
+  const b = e.target.closest('[data-jump]'); if (!b) return;
+  const id = b.dataset.jump; $('input[name=view][value=diff]').checked = true; setView('diff');
+  const targets = $$(`[data-issue~="${id}"],[data-fix~="${id}"]`, m3);
+  targets.forEach(t => t.classList.add('flash'));
+  if (targets[0]) targets[0].scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
+  setTimeout(() => targets.forEach(t => t.classList.remove('flash')), 2500);
+  announce('Showing issue in the diff view: ' + ISSUES.find(i => i.id === id).t);
+});
+updateProgress();
+
+/* =========================================================
+   MODULE 2: page scanner
+   ========================================================= */
+let cvs; function parseColor(str) {
+  const m = /rgba?\(([^)]+)\)/.exec(str);
+  if (m) { const p = m[1].split(/[ ,\/]+/).filter(Boolean).map(parseFloat); return { rgb: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }; }
+  cvs = cvs || document.createElement('canvas').getContext('2d'); cvs.fillStyle = '#000'; cvs.fillStyle = str; cvs.fillRect(0, 0, 1, 1);
+  const d = cvs.getImageData(0, 0, 1, 1).data; return { rgb: [d[0], d[1], d[2]], a: d[3] / 255 };
+}
+function bgOf(el) {
+  const layers = [];
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) { const c = parseColor(getComputedStyle(n).backgroundColor); if (c.a > 0) { layers.push(c); if (c.a >= 1) break; } }
+  let base = [255, 255, 255]; for (let i = layers.length - 1; i >= 0; i--) { const { rgb, a } = layers[i]; base = base.map((v, k) => rgb[k] * a + v * (1 - a)); } return base;
+}
+function describeEl(el) { const t = textOf(el).slice(0, 28); return `${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : ''}${t ? ' "' + t + '"' : ''}`; }
+function scan() {
+  const rows = [];
+  $$('#m3Stage .sx').forEach(root => {
+    const ver = root.dataset.variant === 'before' ? 'Before' : 'After';
+    $$('*', root).forEach(el => {
+      if (el.closest('svg') || ['SCRIPT','STYLE'].includes(el.tagName)) return;
+      const cs = getComputedStyle(el);
+      const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+      if (hasText && !el.disabled) {
+        const bg = bgOf(el), c = parseColor(cs.color), fg = c.rgb.map((v, k) => v * c.a + bg[k] * (1 - c.a));
+        const size = parseFloat(cs.fontSize), bold = parseInt(cs.fontWeight, 10) >= 700, large = size >= 24 || (bold && size >= 18.66), need = large ? 3 : 4.5, r = ratio(fg, bg);
+        if (r < need) { const s = suggest(fg, bg, need, 'fg'); rows.push([ver, describeEl(el), toHex(fg), toHex(bg), r, need + ':1 (text)', s && !s.same ? toHex(s.rgb) + ' for text' : 'Change the background']); }
+      }
+      if (['INPUT','SELECT','TEXTAREA'].includes(el.tagName) && el.type !== 'hidden' && parseFloat(cs.borderTopWidth) > 0) {
+        const bg = bgOf(el.parentElement), c = parseColor(cs.borderTopColor), r = ratio(c.rgb, bg);
+        if (r < 3) { const s = suggest(c.rgb, bg, 3, 'fg'); rows.push([ver, describeEl(el) + ' border', toHex(c.rgb), toHex(bg), r, '3:1 (UI, SC 1.4.11)', s && !s.same ? toHex(s.rgb) + ' for border' : 'Change the background']); }
+      }
+    });
+  });
+  const out = $('#scanOut'); out.hidden = false;
+  const nb = rows.filter(r => r[0] === 'Before').length, na = rows.length - nb;
+  out.innerHTML = rows.length ? `<table><caption>Failing text and UI colours</caption><thead><tr><th scope="col">Version</th><th scope="col">Element</th><th scope="col">Colours</th><th scope="col">Ratio</th><th scope="col">Required</th><th scope="col">Suggested fix</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td><td><span class="sw" style="background:${r[2]}"></span> ${r[2]} on <span class="sw" style="background:${r[3]}"></span> ${r[3]}</td><td>${fmtRatio(r[4])}:1</td><td>${r[5]}</td><td>${esc(r[6])}</td></tr>`).join('')}</tbody></table>` : '<p>No failures found.</p>';
+  $('#scanStat').textContent = `Scan complete: ${nb} failing items in Before, ${na} in After.`;
+}
+$('#scanBtn').addEventListener('click', scan);
+
+/* =========================================================
+   MODULE 2: vision simulation, zoom, reflow, text spacing, lens
+   ========================================================= */
+const vp = $('#m2Vp'), zEl = $('#m2Zoom'), inner = $('#m2Inner');
+function buildM2() { inner.innerHTML = sampleHTML($('input[name=tgt]:checked').value, 'm2-'); layoutM2(); }
+$$('input[name=tgt]').forEach(r => r.addEventListener('change', buildM2));
+$$('input[name=vis]').forEach(r => r.addEventListener('change', () => { vp.style.filter = r.value === 'none' ? '' : `url(#${r.value})`; announce('Simulation: ' + r.parentElement.textContent.trim()); }));
+function findClipped() {
+  return $$('*', zEl).filter(el => !el.closest('svg') && el.tagName !== 'IMG').filter(el => {
+    const cs = getComputedStyle(el); if (cs.overflowX === 'visible' && cs.overflowY === 'visible') return false;
+    return el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1;
+  });
+}
+function layoutM2() {
+  if (!vp.clientWidth) return;
+  const zoom = +$('#zoom').value / 100, reflow = $('#reflow').checked, avail = vp.clientWidth;
+  $('#zoomOut').textContent = $('#zoom').value + '%';
+  /* WHY: real browser zoom shrinks the CSS viewport. We mimic it by laying the sample out at (viewport ÷ zoom) CSS px,
+     then scaling it up, so container queries respond like they would at real zoom. */
+  const cssW = reflow ? 320 : Math.max(120, Math.floor(avail / zoom));
+  zEl.style.width = cssW + 'px'; zEl.style.transform = `scale(${reflow ? 1 : zoom})`;
+  zEl.classList.toggle('ts', $('#tspace').checked);
+  clearTimeout(layoutM2.t); layoutM2.t = setTimeout(() => reportMag(cssW, avail, zoom, reflow), 400);
+  renderLens();
+}
+function reportMag(cssW, avail, zoom, reflow) {
+  const root = $('.sx', zEl), sw = Math.max(zEl.scrollWidth, root ? root.scrollWidth : 0), over = sw > cssW + 1;
+  const b = ok => `<span class="badge ${ok ? 'res-pass' : 'res-fail'}"><span aria-hidden="true">${ok ? '✓' : '✗'}</span> ${ok ? 'Pass' : 'Fail'}</span>`;
+  let h = reflow ? `Reflow test: container fixed at 320 CSS px (SC 1.4.10). ` : `Zoom ${Math.round(zoom * 100)}%: a ${avail}px viewport becomes ${cssW} CSS px wide. `;
+  h += over ? `${b(false)} Content is ${sw}px wide, so horizontal scrolling is needed. ` : `${b(true)} No horizontal scrolling needed. `;
+  if (zoom >= 2 && !reflow) h += '(SC 1.4.4 asks for 200% text size without loss of content or function.) ';
+  if ($('#tspace').checked) {
+    const c = findClipped();
+    h += c.length ? `${b(false)} Text spacing: ${c.length} element(s) clip content: ${esc(c.slice(0, 4).map(describeEl).join('; '))}. Also look for overlapping text yourself.` : `${b(true)} Text spacing: no clipping found. Also look for overlapping text yourself.`;
+  }
+  $('#magResult').innerHTML = h;
+}
+['zoom'].forEach(id => $('#' + id).addEventListener('input', layoutM2));
+['reflow', 'tspace'].forEach(id => $('#' + id).addEventListener('change', layoutM2));
+
+let lensOn = false, lcx = 150, lcy = 120, lz = 3, lraf = 0;
+function drawLens() {
+  if (!lensOn) return;
+  const lens = $('#lens'), li = $('#lensInner'), lw = lens.offsetWidth, lh = lens.offsetHeight;
+  lens.style.left = (lcx - lw / 2) + 'px'; lens.style.top = (lcy - lh / 2) + 'px';
+  const clone = zEl.cloneNode(true); clone.removeAttribute('id'); clone.setAttribute('inert', '');
+  $$('[id]', clone).forEach(n => n.removeAttribute('id')); $$('[tabindex]', clone).forEach(n => n.removeAttribute('tabindex'));
+  li.replaceChildren(clone);
+  li.style.transform = `translate(${lw / 2 - lcx * lz}px, ${lh / 2 - lcy * lz}px) scale(${lz})`;
+}
+function renderLens() { if (!lensOn) return; cancelAnimationFrame(lraf); lraf = requestAnimationFrame(drawLens); }
+$('#lensOn').addEventListener('change', e => {
+  lensOn = e.target.checked; $('#lens').hidden = !lensOn;
+  if (lensOn) { lcx = vp.scrollLeft + vp.clientWidth / 2; lcy = vp.scrollTop + vp.clientHeight / 2; renderLens(); }
+  announce('Lens ' + (lensOn ? 'on' : 'off'));
+});
+vp.addEventListener('pointermove', e => { if (!lensOn) return; const r = vp.getBoundingClientRect(); lcx = e.clientX - r.left + vp.scrollLeft; lcy = e.clientY - r.top + vp.scrollTop; renderLens(); });
+inner.addEventListener('focusin', e => {          // lens follows keyboard focus too
+  if (!lensOn) return; const r = e.target.getBoundingClientRect(), v = vp.getBoundingClientRect();
+  lcx = r.left - v.left + vp.scrollLeft + r.width / 2; lcy = r.top - v.top + vp.scrollTop + r.height / 2; renderLens();
+});
+let lensMsgT;
+$('#lensKbd').addEventListener('keydown', e => {
+  const step = e.shiftKey ? 96 : 24; let used = true;
+  if (!lensOn && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-'].includes(e.key)) { $('#lensStat').textContent = 'Turn on "Show lens" first.'; e.preventDefault(); return; }
+  if (e.key === 'ArrowLeft') lcx -= step; else if (e.key === 'ArrowRight') lcx += step;
+  else if (e.key === 'ArrowUp') lcy -= step; else if (e.key === 'ArrowDown') lcy += step;
+  else if (e.key === '+' || e.key === '=') lz = Math.min(8, lz + 0.5); else if (e.key === '-') lz = Math.max(1.5, lz - 0.5);
+  else used = false;
+  if (!used) return; e.preventDefault(); renderLens();
+  clearTimeout(lensMsgT); lensMsgT = setTimeout(() => { $('#lensStat').textContent = `Lens at ${Math.round(lcx)}, ${Math.round(lcy)}, zoom ${lz} times.`; }, 400);
+});
+buildM2();
+
+/* =========================================================
+   MODULE 4: checklist and report
+   ========================================================= */
+const PRIN = { P: 'Perceivable', O: 'Operable', U: 'Understandable', R: 'Robust' };
+const CHECK = [
+['P','1.1.1','Non-text Content','A'],['P','1.2.1','Audio-only and Video-only (Prerecorded)','A'],['P','1.2.2','Captions (Prerecorded)','A'],['P','1.2.3','Audio Description or Media Alternative (Prerecorded)','A'],['P','1.2.4','Captions (Live)','AA'],['P','1.2.5','Audio Description (Prerecorded)','AA'],['P','1.3.1','Info and Relationships','A'],['P','1.3.2','Meaningful Sequence','A'],['P','1.3.3','Sensory Characteristics','A'],['P','1.3.4','Orientation','AA'],['P','1.3.5','Identify Input Purpose','AA'],['P','1.4.1','Use of Color','A'],['P','1.4.2','Audio Control','A'],['P','1.4.3','Contrast (Minimum)','AA'],['P','1.4.4','Resize Text','AA'],['P','1.4.5','Images of Text','AA'],['P','1.4.10','Reflow','AA'],['P','1.4.11','Non-text Contrast','AA'],['P','1.4.12','Text Spacing','AA'],['P','1.4.13','Content on Hover or Focus','AA'],
+['O','2.1.1','Keyboard','A'],['O','2.1.2','No Keyboard Trap','A'],['O','2.1.4','Character Key Shortcuts','A'],['O','2.2.1','Timing Adjustable','A'],['O','2.2.2','Pause, Stop, Hide','A'],['O','2.3.1','Three Flashes or Below Threshold','A'],['O','2.4.1','Bypass Blocks','A'],['O','2.4.2','Page Titled','A'],['O','2.4.3','Focus Order','A'],['O','2.4.4','Link Purpose (In Context)','A'],['O','2.4.5','Multiple Ways','AA'],['O','2.4.6','Headings and Labels','AA'],['O','2.4.7','Focus Visible','AA'],['O','2.5.1','Pointer Gestures','A'],['O','2.5.2','Pointer Cancellation','A'],['O','2.5.3','Label in Name','A'],['O','2.5.4','Motion Actuation','A'],
+['U','3.1.1','Language of Page','A'],['U','3.1.2','Language of Parts','AA'],['U','3.2.1','On Focus','A'],['U','3.2.2','On Input','A'],['U','3.2.3','Consistent Navigation','AA'],['U','3.2.4','Consistent Identification','AA'],['U','3.3.1','Error Identification','A'],['U','3.3.2','Labels or Instructions','A'],['U','3.3.3','Error Suggestion','AA'],['U','3.3.4','Error Prevention (Legal, Financial, Data)','AA'],
+['R','4.1.1','Parsing','A'],['R','4.1.2','Name, Role, Value','A'],['R','4.1.3','Status Messages','AA']
+];
+$('#checklist').innerHTML = Object.keys(PRIN).map((k, idx) => {
+  const items = CHECK.filter(c => c[0] === k);
+  return `<section class="principle" aria-labelledby="ph-${k}"><h4 id="ph-${k}">${PRIN[k]} (${items.length} criteria)</h4>
+  <details${idx === 0 ? ' open' : ''}><summary>Show or hide ${PRIN[k]} criteria</summary>
+  ${items.map(c => `<fieldset class="item"><legend>${c[1]} ${esc(c[2])} (Level ${c[3]})</legend>
+    <div class="row"><label class="choice"><input type="radio" name="r-${c[1]}" value="pass"> Pass</label><label class="choice"><input type="radio" name="r-${c[1]}" value="fail"> Fail</label><label class="choice"><input type="radio" name="r-${c[1]}" value="na"> Not applicable</label></div>
+    <label for="n-${c[1]}" class="hint">Notes for ${c[1]}</label><input type="text" class="notes-in" id="n-${c[1]}" autocomplete="off"></fieldset>`).join('')}
+  </details></section>`;
+}).join('');
+let reportText = '';
+function buildReport() {
+  const stat = {}; Object.keys(PRIN).forEach(k => stat[k] = { pass: 0, fail: 0, na: 0, none: 0 });
+  const fails = [];
+  CHECK.forEach(c => {
+    const sel = $(`input[name="r-${c[1]}"]:checked`), v = sel ? sel.value : 'none';
+    stat[c[0]][v]++;
+    if (v === 'fail') fails.push({ c, note: $(`#n-${CSS.escape(c[1])}`).value.trim() });
+  });
+  const tot = { pass: 0, fail: 0, na: 0, none: 0 }; Object.values(stat).forEach(s => Object.keys(tot).forEach(k => tot[k] += s[k]));
+  const rate = s => (s.pass + s.fail) ? Math.round(100 * s.pass / (s.pass + s.fail)) + '%' : 'n/a';
+  const lines = [`A11y Lab audit report (WCAG 2.1 A and AA)`, `Criteria: ${CHECK.length}. Pass: ${tot.pass}. Fail: ${tot.fail}. Not applicable: ${tot.na}. Not tested: ${tot.none}. Overall pass rate (of tested): ${rate(tot)}.`, '', 'Pass rate by principle:'];
+  Object.keys(PRIN).forEach(k => lines.push(`- ${PRIN[k]}: ${rate(stat[k])} (pass ${stat[k].pass}, fail ${stat[k].fail}, N/A ${stat[k].na}, not tested ${stat[k].none})`));
+  lines.push('', fails.length ? 'Failed criteria:' : 'No failed criteria recorded.');
+  fails.forEach(f => lines.push(`- ${f.c[1]} ${f.c[2]} (Level ${f.c[3]})${f.note ? ': ' + f.note : ''}`));
+  lines.push('', `Remediation workshop: found ${found.size} of ${ISSUES.length} issues, marked ${fixed.size} fixed.`, 'Note: automated tools cover only part of WCAG; this report relies on manual testing.');
+  reportText = lines.join('\n');
+  $('#reportOut').innerHTML = `<h4 id="reportH" tabindex="-1">Audit report</h4>
+    <p>Criteria: ${CHECK.length}. <strong>Pass ${tot.pass}</strong>, <strong>Fail ${tot.fail}</strong>, Not applicable ${tot.na}, Not tested ${tot.none}. Overall pass rate of tested criteria: <strong>${rate(tot)}</strong>.</p>
+    <div class="table-scroll" role="region" aria-label="Pass rate by principle" tabindex="0"><table><caption>Pass rate by principle</caption><thead><tr><th scope="col">Principle</th><th scope="col">Pass</th><th scope="col">Fail</th><th scope="col">N/A</th><th scope="col">Not tested</th><th scope="col">Pass rate</th></tr></thead><tbody>
+    ${Object.keys(PRIN).map(k => `<tr><th scope="row">${PRIN[k]}</th><td>${stat[k].pass}</td><td>${stat[k].fail}</td><td>${stat[k].na}</td><td>${stat[k].none}</td><td>${rate(stat[k])}</td></tr>`).join('')}</tbody></table></div>
+    <h5>Failed criteria</h5>${fails.length ? '<ul>' + fails.map(f => `<li><strong>${f.c[1]} ${esc(f.c[2])}</strong> (Level ${f.c[3]})${f.note ? ': ' + esc(f.note) : ''}</li>`).join('') + '</ul>' : '<p>None recorded.</p>'}
+    <p>Remediation workshop: found ${found.size} of ${ISSUES.length}, marked ${fixed.size} fixed.</p>
+    <p class="hint">Automated tools find only part of WCAG issues; manual testing is required.</p>`;
+}
+$('#genBtn').addEventListener('click', () => { buildReport(); $('#reportH').focus(); });     // focus the report so it is announced
+$('#copyBtn').addEventListener('click', async () => {
+  if (!reportText) buildReport();
+  try { await navigator.clipboard.writeText(reportText); }
+  catch { const t = document.createElement('textarea'); t.value = reportText; t.style.position = 'fixed'; t.style.opacity = '0'; document.body.append(t); t.select(); try { document.execCommand('copy'); } catch {} t.remove(); }
+  toast('Report copied as plain text.');
+});
+$('#printBtn').addEventListener('click', () => { if (!reportText) buildReport(); window.print(); });
+
+/* ---------- init ---------- */
+applyTheme();
+})();
+</script>
+</body>
+</html>
